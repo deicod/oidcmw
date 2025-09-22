@@ -1,10 +1,13 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/deicod/oidcmw/tokensource"
 )
 
 // Config captures the runtime configuration for the OIDC middleware.
@@ -36,7 +39,17 @@ type Config struct {
 
 	// Now, when provided, overrides the source of the current time. Primarily used for testing.
 	Now func() time.Time
+
+	// TokenSources controls the order and implementation of token extraction. When empty a default
+	// Authorization header source is used. Custom sources should return tokens in the raw string form.
+	TokenSources []tokensource.Source
+
+	// ClaimsValidators allows callers to provide additional validation logic for decoded claims.
+	ClaimsValidators []ClaimsValidator
 }
+
+// ClaimsValidator performs additional validation on decoded token claims.
+type ClaimsValidator func(ctx context.Context, claims map[string]any) error
 
 // ErrorResponseBuilder creates a structured payload for authentication failures.
 type ErrorResponseBuilder func(code, description string) any
@@ -61,12 +74,18 @@ func (c *Config) SetDefaults() {
 	if c.ErrorResponseBuilder == nil {
 		c.ErrorResponseBuilder = DefaultErrorResponseBuilder
 	}
+	if len(c.TokenSources) == 0 {
+		c.TokenSources = []tokensource.Source{tokensource.AuthorizationHeader()}
+	}
 }
 
 // Validate ensures the configuration is usable.
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.Issuer) == "" {
 		return errors.New("config: issuer is required")
+	}
+	if len(c.TokenSources) == 0 {
+		return errors.New("config: at least one token source must be configured")
 	}
 	return nil
 }

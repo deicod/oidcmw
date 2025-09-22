@@ -3,6 +3,7 @@ package oidc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -21,6 +22,7 @@ type Validator struct {
 	tokenTypeAllowlist map[string]struct{}
 	azpAllowlist       map[string]struct{}
 	now                func() time.Time
+	claimsValidators   []config.ClaimsValidator
 }
 
 // ValidatedToken encapsulates the validated token and decoded claims.
@@ -67,6 +69,7 @@ func NewValidator(ctx context.Context, cfg config.Config) (*Validator, error) {
 		tokenTypeAllowlist: tokenTypes,
 		azpAllowlist:       azps,
 		now:                now,
+		claimsValidators:   append([]config.ClaimsValidator(nil), cfg.ClaimsValidators...),
 	}, nil
 }
 
@@ -104,6 +107,10 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 		return nil, err
 	}
 
+	if err := v.runCustomValidators(ctx, claims); err != nil {
+		return nil, err
+	}
+
 	subject, _ := claims["sub"].(string)
 
 	validated := &ValidatedToken{
@@ -116,6 +123,22 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 	}
 
 	return validated, nil
+}
+
+func (v *Validator) runCustomValidators(ctx context.Context, claims map[string]any) *ValidationError {
+	for _, validate := range v.claimsValidators {
+		if validate == nil {
+			continue
+		}
+		if err := validate(ctx, claims); err != nil {
+			var vErr *ValidationError
+			if errors.As(err, &vErr) {
+				return vErr
+			}
+			return newValidationError(ValidationErrorClaimMismatch, "custom claim validation failed", err)
+		}
+	}
+	return nil
 }
 
 func (v *Validator) validateTimes(now time.Time, token *oidc.IDToken, notBefore *time.Time) *ValidationError {

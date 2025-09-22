@@ -1,0 +1,12 @@
+# Example configuration for oidcmw.
+issuer: https://auth.example.com/realms/demo
+audiences:
+  - account
+authorized_parties:
+  - spa
+clock_skew: 30s
+unauthorized_status_code: 401
+token_sources:
+  - type: cookie
+    name: access_token
+  - type: authorization_header
