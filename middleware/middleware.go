@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,10 +123,22 @@ func handleValidationError(w http.ResponseWriter, cfg config.Config, err error) 
 
 func respond(w http.ResponseWriter, cfg config.Config, authErr authError) {
 	w.Header().Set("Content-Type", "application/json")
+	if authErr.status == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", wwwAuthenticateHeader(authErr))
+	}
 	w.WriteHeader(authErr.status)
 
 	body := cfg.ErrorResponseBuilder(string(authErr.code), authErr.description)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+func wwwAuthenticateHeader(authErr authError) string {
+	var b strings.Builder
+	b.WriteString("Bearer error=")
+	b.WriteString(strconv.Quote(string(authErr.code)))
+	b.WriteString(", error_description=")
+	b.WriteString(strconv.Quote(authErr.description))
+	return b.String()
 }
 
 func logFailure(ctx context.Context, logger *slog.Logger, authErr authError) {
