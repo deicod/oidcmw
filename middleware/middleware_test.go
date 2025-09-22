@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/deicod/oidcmw/config"
+	"github.com/deicod/oidcmw/viewer"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,15 @@ func TestMiddleware_AllowsValidToken(t *testing.T) {
 		claims, ok := ClaimsFromContext(r.Context())
 		require.True(t, ok)
 		require.Equal(t, "alice", claims["preferred_username"])
+
+		v, err := viewer.FromContext(r.Context())
+		require.NoError(t, err)
+		require.Equal(t, "subject", v.Subject)
+		require.Equal(t, "alice", v.PreferredUsername)
+		require.Equal(t, "alice@example.com", v.Email)
+		require.True(t, v.HasRealmRole("offline_access"))
+		require.True(t, v.HasResourceRole("account", "view-profile"))
+		require.True(t, v.HasAnyScope("email"))
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -47,6 +57,16 @@ func TestMiddleware_AllowsValidToken(t *testing.T) {
 		"typ":                "Bearer",
 		"azp":                "spa",
 		"preferred_username": "alice",
+		"email":              "alice@example.com",
+		"realm_access": map[string]any{
+			"roles": []any{"default-roles-dev", "offline_access"},
+		},
+		"resource_access": map[string]any{
+			"account": map[string]any{
+				"roles": []string{"manage-account", "view-profile"},
+			},
+		},
+		"scope": "openid email profile",
 	}
 
 	token := issuer.signToken(t, claims)
