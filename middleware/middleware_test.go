@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +20,8 @@ import (
 	"github.com/deicod/oidcmw/viewer"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestMiddleware_AllowsValidToken(t *testing.T) {
@@ -366,12 +370,109 @@ func TestMiddleware_CustomClaimsValidatorRejects(t *testing.T) {
 	require.Equal(t, "invalid_token", body["error"])
 }
 
+func TestMiddleware_RecordsMetricsOnSuccess(t *testing.T) {
+	issuer := newTestIssuer(t)
+	t.Cleanup(issuer.Close)
+
+	recorder := &capturingMetrics{}
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	t.Cleanup(func() {
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+	cfg := config.Config{
+		Issuer:          issuer.issuer,
+		Audiences:       []string{"account"},
+		MetricsRecorder: recorder,
+		Tracer:          tracerProvider.Tracer("middleware-test"),
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	now := time.Now()
+	claims := map[string]any{
+		"iss": issuer.issuer,
+		"sub": "subject",
+		"aud": "account",
+		"exp": now.Add(time.Minute).Unix(),
+		"iat": now.Add(-time.Minute).Unix(),
+	}
+
+	token := issuer.signToken(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+	require.Len(t, recorder.events, 1)
+	require.Equal(t, config.MetricsOutcomeSuccess, recorder.events[0].Outcome)
+	require.Empty(t, recorder.events[0].ErrorCode)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
+}
+
+func TestMiddleware_RecordsMetricsOnFailure(t *testing.T) {
+	issuer := newTestIssuer(t)
+	t.Cleanup(issuer.Close)
+
+	recorder := &capturingMetrics{}
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	t.Cleanup(func() {
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+	cfg := config.Config{
+		Issuer:          issuer.issuer,
+		MetricsRecorder: recorder,
+		Tracer:          tracerProvider.Tracer("middleware-test"),
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be invoked")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	require.Len(t, recorder.events, 1)
+	require.Equal(t, config.MetricsOutcomeFailure, recorder.events[0].Outcome)
+	require.Equal(t, "invalid_request", recorder.events[0].ErrorCode)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
+}
+
 type testIssuer struct {
 	server *httptest.Server
 	issuer string
 	key    *rsa.PrivateKey
 	keyID  string
 	jwks   []byte
+}
+
+type capturingMetrics struct {
+	events []config.MetricsEvent
+}
+
+func (c *capturingMetrics) RecordValidation(_ context.Context, event config.MetricsEvent) {
+	c.events = append(c.events, event)
 }
 
 func newTestIssuer(t *testing.T) *testIssuer {
