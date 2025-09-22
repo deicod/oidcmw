@@ -103,7 +103,13 @@ func AuthorizationHeaderWithScheme(scheme string) Source {
 			return token, nil
 		}
 
-		if !strings.HasPrefix(strings.ToLower(header), strings.ToLower(normalized)+" ") {
+		if len(header) <= len(normalized) {
+			return "", ErrNotFound
+		}
+		if header[len(normalized)] != ' ' {
+			return "", ErrNotFound
+		}
+		if !strings.EqualFold(header[:len(normalized)], normalized) {
 			return "", ErrNotFound
 		}
 
@@ -141,8 +147,13 @@ func HeaderWithScheme(name, scheme string) Source {
 			}
 			return token, nil
 		}
-		prefix := strings.ToLower(normalized) + " "
-		if !strings.HasPrefix(strings.ToLower(value), prefix) {
+		if len(value) <= len(normalized) {
+			return "", ErrNotFound
+		}
+		if value[len(normalized)] != ' ' {
+			return "", ErrNotFound
+		}
+		if !strings.EqualFold(value[:len(normalized)], normalized) {
 			return "", ErrNotFound
 		}
 		token := strings.TrimSpace(value[len(normalized)+1:])
