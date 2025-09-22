@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/deicod/oidcmw/config"
 	"github.com/prometheus/client_golang/prometheus"
@@ -48,14 +49,25 @@ func NewMetrics(opts MetricsOptions) (*Metrics, error) {
 		Buckets:   buckets,
 	}, []string{"issuer", "outcome"})
 
-	if err := registerCollector(registerer, counter); err != nil {
+	registeredCounter, err := registerCollector(registerer, counter)
+	if err != nil {
 		return nil, err
 	}
-	if err := registerCollector(registerer, histogram); err != nil {
-		return nil, err
+	counterVec, ok := registeredCounter.(*prometheus.CounterVec)
+	if !ok {
+		return nil, fmt.Errorf("observability: requests_total collector has unexpected type %T", registeredCounter)
 	}
 
-	return &Metrics{requestTotal: counter, requestDuration: histogram}, nil
+	registeredHistogram, err := registerCollector(registerer, histogram)
+	if err != nil {
+		return nil, err
+	}
+	histogramVec, ok := registeredHistogram.(*prometheus.HistogramVec)
+	if !ok {
+		return nil, fmt.Errorf("observability: duration_seconds collector has unexpected type %T", registeredHistogram)
+	}
+
+	return &Metrics{requestTotal: counterVec, requestDuration: histogramVec}, nil
 }
 
 // RecordValidation implements config.MetricsRecorder.
@@ -79,18 +91,21 @@ func (m *Metrics) RecordValidation(_ context.Context, event config.MetricsEvent)
 	m.requestDuration.WithLabelValues(issuer, outcome).Observe(event.Duration.Seconds())
 }
 
-func registerCollector(reg prometheus.Registerer, collector prometheus.Collector) error {
+func registerCollector(reg prometheus.Registerer, collector prometheus.Collector) (prometheus.Collector, error) {
 	if reg == nil {
-		return errors.New("observability: registerer is nil")
+		return nil, errors.New("observability: registerer is nil")
 	}
 	if err := reg.Register(collector); err != nil {
 		var are prometheus.AlreadyRegisteredError
 		if errors.As(err, &are) {
-			return nil
+			if are.ExistingCollector == nil {
+				return nil, errors.New("observability: collector already registered but missing reference")
+			}
+			return are.ExistingCollector, nil
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return collector, nil
 }
 
 // Collectors exposes the underlying collectors for advanced registration scenarios.
