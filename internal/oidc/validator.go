@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -37,12 +36,11 @@ type ValidatedToken struct {
 
 // NewValidator constructs a Validator using the provided configuration.
 func NewValidator(ctx context.Context, cfg config.Config) (*Validator, error) {
-	client := cfg.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
+	if cfg.HTTPClient == nil {
+		return nil, fmt.Errorf("oidc: http client is not configured")
 	}
 
-	ctx = oidc.ClientContext(ctx, client)
+	ctx = oidc.ClientContext(ctx, cfg.HTTPClient)
 	provider, err := oidc.NewProvider(ctx, cfg.Issuer)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: create provider: %w", err)
