@@ -8,6 +8,7 @@ import (
 
 	"github.com/deicod/oidcmw/config"
 	internaloidc "github.com/deicod/oidcmw/internal/oidc"
+	"github.com/deicod/oidcmw/viewer"
 )
 
 // NewMiddleware constructs an HTTP middleware enforcing OIDC bearer token validation.
@@ -38,7 +39,8 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 				return
 			}
 
-			ctx := contextWithClaims(r.Context(), validated.Claims)
+			v := viewer.FromClaims(validated.Claims)
+			ctx := contextWithViewer(r.Context(), v)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}, nil
