@@ -19,24 +19,145 @@ func TestAuthorizationHeader(t *testing.T) {
 }
 
 func TestAuthorizationHeaderWithScheme(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Custom token")
+	tests := []struct {
+		name      string
+		scheme    string
+		header    string
+		wantToken string
+		wantErr   error
+	}{
+		{
+			name:      "exact match",
+			scheme:    "Custom",
+			header:    "Custom token",
+			wantToken: "token",
+		},
+		{
+			name:      "case insensitive header",
+			scheme:    "Custom",
+			header:    "CUSTOM token",
+			wantToken: "token",
+		},
+		{
+			name:      "case insensitive scheme",
+			scheme:    "custom",
+			header:    "Custom token",
+			wantToken: "token",
+		},
+		{
+			name:    "scheme only without separator",
+			scheme:  "Custom",
+			header:  "Custom",
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "missing space after scheme",
+			scheme:  "Custom",
+			header:  "Customtoken",
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "missing token",
+			scheme:  "Custom",
+			header:  "Custom ",
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "header not present",
+			scheme:  "Custom",
+			wantErr: ErrNotFound,
+		},
+	}
 
-	token, err := AuthorizationHeaderWithScheme("Custom").Extract(req)
-	require.NoError(t, err)
-	require.Equal(t, "token", token)
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+
+			token, err := AuthorizationHeaderWithScheme(tc.scheme).Extract(req)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.wantToken, token)
+		})
+	}
 }
 
 func TestHeaderWithScheme(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Auth", "Token scheme-value")
+	tests := []struct {
+		name      string
+		header    string
+		scheme    string
+		wantToken string
+		wantErr   error
+	}{
+		{
+			name:      "exact match",
+			header:    "Token scheme-value",
+			scheme:    "Token",
+			wantToken: "scheme-value",
+		},
+		{
+			name:      "case insensitive header",
+			header:    "TOKEN scheme-value",
+			scheme:    "Token",
+			wantToken: "scheme-value",
+		},
+		{
+			name:      "case insensitive scheme",
+			header:    "Token scheme-value",
+			scheme:    "token",
+			wantToken: "scheme-value",
+		},
+		{
+			name:    "mismatched scheme",
+			header:  "Token scheme-value",
+			scheme:  "Bearer",
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "scheme only without separator",
+			header:  "Token",
+			scheme:  "Token",
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "missing space after scheme",
+			header:  "Tokenscheme-value",
+			scheme:  "Token",
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "header not present",
+			scheme:  "Token",
+			wantErr: ErrNotFound,
+		},
+	}
 
-	_, err := HeaderWithScheme("X-Auth", "Bearer").Extract(req)
-	require.ErrorIs(t, err, ErrNotFound)
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.header != "" {
+				req.Header.Set("X-Auth", tc.header)
+			}
 
-	token, err := HeaderWithScheme("X-Auth", "Token").Extract(req)
-	require.NoError(t, err)
-	require.Equal(t, "scheme-value", token)
+			token, err := HeaderWithScheme("X-Auth", tc.scheme).Extract(req)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.wantToken, token)
+		})
+	}
 }
 
 func TestCookie(t *testing.T) {
