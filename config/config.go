@@ -61,9 +61,6 @@ func (c *Config) SetDefaults() {
 	if c.ErrorResponseBuilder == nil {
 		c.ErrorResponseBuilder = DefaultErrorResponseBuilder
 	}
-	if len(c.TokenTypes) == 0 {
-		c.TokenTypes = []string{"Bearer"}
-	}
 }
 
 // Validate ensures the configuration is usable.

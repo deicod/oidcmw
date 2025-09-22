@@ -21,7 +21,7 @@ a review walkthrough, updated documentation, and a regression test run (`go test
 - Add bearer token extraction from the Authorization header and an extensible token source interface for future providers.
 - Integrate OIDC client (`github.com/coreos/go-oidc`) and OAuth2 HTTP client setup with retry-capable transport.
 - Implement JWKS fetching, caching, and rotation logic with configurable timeouts and background refresh.
-- Validate token signature, expiration (`exp`), issued-at (`iat`), not-before (`nbf`), issuer (`iss`), audience (`aud`), type (`typ`), and authorized party (`azp`).
+- Validate token signature, expiration (`exp`), issued-at (`iat`), not-before (`nbf`), issuer (`iss`), audience (`aud`), and authorized party (`azp`). Support opt-in token type (`typ`) validation for deployments that surface the claim.
 - Provide structured error responses with configurable status codes and error body schema, ensuring sensitive claim data stays redacted.
 
 **Deliverables**
@@ -129,7 +129,7 @@ a review walkthrough, updated documentation, and a regression test run (`go test
 - [ ] Scaffold middleware, config, and internal OIDC packages with buildable skeletons.
 - [ ] Implement Authorization header token extractor and interface for alternative sources.
 - [ ] Wire OIDC provider client, JWKS cache, and signature verification with configurable timeouts.
-- [ ] Enforce baseline claim validation (`exp`, `iat`, `nbf`, `iss`, `aud`, `typ`, `azp`).
+- [ ] Enforce baseline claim validation (`exp`, `iat`, `nbf`, `iss`, `aud`, `azp`) with an opt-in path for token type (`typ`) allow-listing.
 - [ ] Provide structured error responses and redact sensitive claim data.
 - [ ] Author unit tests for happy path, invalid signature, expired token, and JWKS fetch failure.
 
