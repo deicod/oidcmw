@@ -87,3 +87,11 @@ cfg := config.Config{
 ```
 
 When configured, middleware automatically records authentication outcomes, latency, and OpenTelemetry span attributes including issuer, outcome, and error codes.
+
+## Documentation
+
+- [Quick Start](docs/quickstart.md) – integrate the middleware with a `net/http` service.
+- [Extensibility Guide](docs/extensibility.md) – customize token sources, claims validation, and observability hooks.
+- [Testing Helpers](docs/testing.md) – use the in-memory issuer from the `testutil` package to drive unit tests.
+- [Troubleshooting](docs/troubleshooting.md) – resolve common integration issues.
+- [FAQ](docs/faq.md) – answers to frequently asked questions.

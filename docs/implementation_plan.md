@@ -126,36 +126,36 @@ a review walkthrough, updated documentation, and a regression test run (`go test
 ## Detailed TODOs
 
 ### Iteration 1 Checklist
-- [ ] Scaffold middleware, config, and internal OIDC packages with buildable skeletons.
-- [ ] Implement Authorization header token extractor and interface for alternative sources.
-- [ ] Wire OIDC provider client, JWKS cache, and signature verification with configurable timeouts.
-- [ ] Enforce baseline claim validation (`exp`, `iat`, `nbf`, `iss`, `aud`, `azp`) with an opt-in path for token type (`typ`) allow-listing.
-- [ ] Provide structured error responses and redact sensitive claim data.
-- [ ] Author unit tests for happy path, invalid signature, expired token, and JWKS fetch failure.
+- [x] Scaffold middleware, config, and internal OIDC packages with buildable skeletons.
+- [x] Implement Authorization header token extractor and interface for alternative sources.
+- [x] Wire OIDC provider client, JWKS cache, and signature verification with configurable timeouts.
+- [x] Enforce baseline claim validation (`exp`, `iat`, `nbf`, `iss`, `aud`, `azp`) with an opt-in path for token type (`typ`) allow-listing.
+- [x] Provide structured error responses and redact sensitive claim data.
+- [x] Author unit tests for happy path, invalid signature, expired token, and JWKS fetch failure.
 
 ### Iteration 2 Checklist
-- [ ] Define `Viewer` struct and context accessor helpers.
-- [ ] Map standard claims to viewer fields with normalization logic and tests.
-- [ ] Implement realm/resource role parsing preserving unknown roles.
-- [ ] Add scope parsing utilities supporting multiple claim formats.
-- [ ] Expose authorization helper predicates with table-driven tests.
-- [ ] Document viewer usage with example handler snippet.
+- [x] Define `Viewer` struct and context accessor helpers.
+- [x] Map standard claims to viewer fields with normalization logic and tests.
+- [x] Implement realm/resource role parsing preserving unknown roles.
+- [x] Add scope parsing utilities supporting multiple claim formats.
+- [x] Expose authorization helper predicates with table-driven tests.
+- [x] Document viewer usage with example handler snippet.
 
 ### Iteration 3 Checklist
-- [ ] Finalize `Config` struct covering issuer, audiences, token sources, error policy, and hooks.
-- [ ] Build env var and file-based config loaders with precedence rules and validation errors.
-- [ ] Implement cookie, custom header, and query param token sources registered via interface.
-- [ ] Add custom claim validation hook support and sample usage tests.
-- [ ] Harden HTTP client configuration (timeouts, retry policy, mTLS) and document overrides.
-- [ ] Publish extensibility guide and sample configuration files.
+- [x] Finalize `Config` struct covering issuer, audiences, token sources, error policy, and hooks.
+- [x] Build env var and file-based config loaders with precedence rules and validation errors.
+- [x] Implement cookie, custom header, and query param token sources registered via interface.
+- [x] Add custom claim validation hook support and sample usage tests.
+- [x] Harden HTTP client configuration (timeouts, retry policy, mTLS) and document overrides.
+- [x] Publish extensibility guide and sample configuration files.
 
 ### Iteration 4 Checklist
-- [ ] Integrate structured logging abstraction with context awareness.
-- [ ] Emit Prometheus metrics and expose registration helper.
-- [ ] Provide OpenTelemetry tracing hooks with span attribute safeguards.
-- [ ] Create fake issuer, signer utilities, and helper packages for tests.
-- [ ] Author quick-start, troubleshooting, FAQ, and update README index.
-- [ ] Add GitHub Actions workflow running `go test`, `go vet`, and `staticcheck`.
+- [x] Integrate structured logging abstraction with context awareness.
+- [x] Emit Prometheus metrics and expose registration helper.
+- [x] Provide OpenTelemetry tracing hooks with span attribute safeguards.
+- [x] Create fake issuer, signer utilities, and helper packages for tests.
+- [x] Author quick-start, troubleshooting, FAQ, and update README index.
+- [x] Add GitHub Actions workflow running `go test`, `go vet`, and `staticcheck`.
 
 ## Open Questions & Risks
 | Item | Current Understanding | Proposed Resolution |

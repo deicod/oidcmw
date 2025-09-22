@@ -1,6 +1,8 @@
 module github.com/deicod/oidcmw
 
-go 1.25.1
+go 1.23.0
+
+toolchain go1.24.3
 
 require (
 	github.com/coreos/go-oidc/v3 v3.15.0
