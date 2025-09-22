@@ -49,7 +49,7 @@ Service teams running Go HTTP services need a lightweight yet secure way to prot
 - Enforce issuer (`iss`), audience (`aud`), token type (`typ`), and authorized party (`azp`) checks with configuration supporting:
   - Exact match, allow-lists, and optional wildcards where appropriate.
   - Per-resource audience lists for multi-tenant services.
-  - Ability to disable individual checks explicitly (default: all enabled with strict matching).
+  - Ability to disable individual checks explicitly. Token type validation must be opt-in because most providers expose the `typ` hint only in the JOSE header rather than the claim set.
 - Ensure the provided Keycloak-style claim structure is supported, including parsing nested `realm_access.roles` and `resource_access` maps.
 - Provide robust error classification (e.g., invalid token, expired, signature mismatch, claim mismatch) for logging and metrics.
 
