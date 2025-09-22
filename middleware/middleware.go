@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/deicod/oidcmw/config"
 	internaloidc "github.com/deicod/oidcmw/internal/oidc"
+	"github.com/deicod/oidcmw/tokensource"
 	"github.com/deicod/oidcmw/viewer"
 )
 
@@ -23,13 +25,17 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 		return nil, err
 	}
 
-	extractors := defaultExtractors()
+	sources := append([]tokensource.Source(nil), cfg.TokenSources...)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			rawToken, err := extractToken(r, extractors)
+			rawToken, err := extractToken(r, sources)
 			if err != nil {
-				respond(w, cfg, newAuthError(errorCodeInvalidRequest, cfg.UnauthorizedStatusCode, "missing bearer token", err))
+				if errors.Is(err, tokensource.ErrNotFound) {
+					respond(w, cfg, newAuthError(errorCodeInvalidRequest, cfg.UnauthorizedStatusCode, "missing bearer token", err))
+					return
+				}
+				respond(w, cfg, newAuthError(errorCodeServerError, http.StatusInternalServerError, "token extraction failed", err))
 				return
 			}
 
@@ -46,18 +52,21 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 	}, nil
 }
 
-func extractToken(r *http.Request, extractors []tokenExtractor) (string, error) {
-	for _, extractor := range extractors {
-		token, err := extractor.Extract(r)
+func extractToken(r *http.Request, sources []tokensource.Source) (string, error) {
+	for _, source := range sources {
+		token, err := source.Extract(r)
 		if err != nil {
-			if errors.Is(err, errNoTokenFound) {
+			if errors.Is(err, tokensource.ErrNotFound) {
 				continue
 			}
 			return "", err
 		}
+		if strings.TrimSpace(token) == "" {
+			continue
+		}
 		return token, nil
 	}
-	return "", errNoTokenFound
+	return "", tokensource.ErrNotFound
 }
 
 func handleValidationError(w http.ResponseWriter, cfg config.Config, err error) {

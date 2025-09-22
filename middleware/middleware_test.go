@@ -1,10 +1,12 @@
 package middleware
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/deicod/oidcmw/config"
+	"github.com/deicod/oidcmw/tokensource"
 	"github.com/deicod/oidcmw/viewer"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
@@ -228,6 +231,139 @@ func TestMiddleware_RejectsMissingAuthorization(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_request", body["error"])
+}
+
+func TestMiddleware_CustomTokenSources(t *testing.T) {
+	issuer := newTestIssuer(t)
+	t.Cleanup(issuer.Close)
+
+	cfg := config.Config{
+		Issuer:    issuer.issuer,
+		Audiences: []string{"account"},
+		TokenSources: []tokensource.Source{
+			tokensource.Cookie("session"),
+			tokensource.AuthorizationHeader(),
+		},
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	now := time.Now()
+	claims := map[string]any{
+		"iss": issuer.issuer,
+		"sub": "subject",
+		"aud": "account",
+		"exp": now.Add(time.Minute).Unix(),
+		"iat": now.Add(-time.Minute).Unix(),
+	}
+
+	token := issuer.signToken(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: token})
+	req.Header.Set("Authorization", "Bearer invalid")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+}
+
+func TestMiddleware_CustomClaimsValidator(t *testing.T) {
+	issuer := newTestIssuer(t)
+	t.Cleanup(issuer.Close)
+
+	var invoked bool
+	cfg := config.Config{
+		Issuer:    issuer.issuer,
+		Audiences: []string{"account"},
+		ClaimsValidators: []config.ClaimsValidator{
+			func(ctx context.Context, claims map[string]any) error {
+				invoked = true
+				if claims["preferred_username"] != "alice" {
+					return fmt.Errorf("unexpected subject")
+				}
+				return nil
+			},
+		},
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	now := time.Now()
+	claims := map[string]any{
+		"iss":                issuer.issuer,
+		"sub":                "subject",
+		"aud":                "account",
+		"exp":                now.Add(time.Minute).Unix(),
+		"iat":                now.Add(-time.Minute).Unix(),
+		"preferred_username": "alice",
+	}
+
+	token := issuer.signToken(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.True(t, invoked)
+	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestMiddleware_CustomClaimsValidatorRejects(t *testing.T) {
+	issuer := newTestIssuer(t)
+	t.Cleanup(issuer.Close)
+
+	cfg := config.Config{
+		Issuer:    issuer.issuer,
+		Audiences: []string{"account"},
+		ClaimsValidators: []config.ClaimsValidator{
+			func(ctx context.Context, claims map[string]any) error {
+				return fmt.Errorf("denied")
+			},
+		},
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be invoked")
+	}))
+
+	now := time.Now()
+	claims := map[string]any{
+		"iss": issuer.issuer,
+		"sub": "subject",
+		"aud": "account",
+		"exp": now.Add(time.Minute).Unix(),
+		"iat": now.Add(-time.Minute).Unix(),
+	}
+
+	token := issuer.signToken(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	require.Equal(t, "invalid_token", body["error"])
 }
 
 type testIssuer struct {
