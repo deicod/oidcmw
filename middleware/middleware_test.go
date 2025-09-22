@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -116,6 +117,7 @@ func TestMiddleware_RejectsInvalidSignature(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_token", body["error"])
+	requireWWWAuthenticateHeader(t, rr, "invalid_token", "token validation failed")
 }
 
 func TestMiddleware_RejectsExpiredToken(t *testing.T) {
@@ -151,6 +153,7 @@ func TestMiddleware_RejectsExpiredToken(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_token", body["error"])
+	requireWWWAuthenticateHeader(t, rr, "invalid_token", "token validation failed")
 }
 
 func TestMiddleware_JWKSFetchFailure(t *testing.T) {
@@ -186,6 +189,7 @@ func TestMiddleware_JWKSFetchFailure(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_token", body["error"])
+	requireWWWAuthenticateHeader(t, rr, "invalid_token", "token validation failed")
 }
 
 func TestMiddleware_RejectsMalformedToken(t *testing.T) {
@@ -209,6 +213,7 @@ func TestMiddleware_RejectsMalformedToken(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_token", body["error"])
+	requireWWWAuthenticateHeader(t, rr, "invalid_token", "token validation failed")
 }
 
 func TestMiddleware_RejectsMissingAuthorization(t *testing.T) {
@@ -231,6 +236,7 @@ func TestMiddleware_RejectsMissingAuthorization(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_request", body["error"])
+	requireWWWAuthenticateHeader(t, rr, "invalid_request", "missing bearer token")
 }
 
 func TestMiddleware_CustomTokenSources(t *testing.T) {
@@ -364,6 +370,7 @@ func TestMiddleware_CustomClaimsValidatorRejects(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_token", body["error"])
+	requireWWWAuthenticateHeader(t, rr, "invalid_token", "token validation failed")
 }
 
 func TestMiddleware_RecordsMetricsOnSuccess(t *testing.T) {
@@ -450,9 +457,18 @@ func TestMiddleware_RecordsMetricsOnFailure(t *testing.T) {
 	require.Len(t, recorder.events, 1)
 	require.Equal(t, config.MetricsOutcomeFailure, recorder.events[0].Outcome)
 	require.Equal(t, "invalid_request", recorder.events[0].ErrorCode)
+	requireWWWAuthenticateHeader(t, rr, "invalid_request", "missing bearer token")
 
 	spans := spanRecorder.Ended()
 	require.Len(t, spans, 1)
+}
+
+func requireWWWAuthenticateHeader(t *testing.T, rr *httptest.ResponseRecorder, code, description string) {
+	t.Helper()
+	header := rr.Header().Get("WWW-Authenticate")
+	require.NotEmpty(t, header)
+	expected := "Bearer error=" + strconv.Quote(code) + ", error_description=" + strconv.Quote(description)
+	require.Equal(t, expected, header)
 }
 
 type capturingMetrics struct {

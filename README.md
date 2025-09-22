@@ -46,6 +46,10 @@ func main() {
 
 Downstream handlers can also inspect the original JWT claims via `middleware.ClaimsFromContext` when custom authorization logic is required.
 
+## Error Responses
+
+Authentication failures return RFC 6750 inspired payloads. When the middleware responds with `401 Unauthorized` it also includes a `WWW-Authenticate` header that repeats the `error` and `error_description` values (for example `Bearer error="invalid_token", error_description="token validation failed"`). Header values are safely escaped so integrators can rely on them for programmatic handling or surfacing messages to clients.
+
 ## Documentation
 
 - [Quick Start](docs/quickstart.md)
