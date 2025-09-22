@@ -166,7 +166,7 @@ func (v *Validator) validateIssuer(claims map[string]any) *ValidationError {
 	if claim == "" {
 		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim missing", nil)
 	}
-	if !strings.EqualFold(claim, v.config.Issuer) {
+	if claim != v.config.Issuer {
 		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim mismatch", nil)
 	}
 	return nil
