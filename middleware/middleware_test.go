@@ -2,30 +2,30 @@ package middleware
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math/big"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/deicod/oidcmw/config"
+	testissuer "github.com/deicod/oidcmw/internal/testutil/issuer"
 	"github.com/deicod/oidcmw/tokensource"
 	"github.com/deicod/oidcmw/viewer"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestMiddleware_AllowsValidToken(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
 	cfg := config.Config{
-		Issuer:            issuer.issuer,
+		Issuer:            issuer.Issuer(),
 		Audiences:         []string{"account"},
 		AuthorizedParties: []string{"spa"},
 	}
@@ -51,7 +51,7 @@ func TestMiddleware_AllowsValidToken(t *testing.T) {
 
 	now := time.Now().Add(-1 * time.Minute)
 	claims := map[string]any{
-		"iss":                issuer.issuer,
+		"iss":                issuer.Issuer(),
 		"sub":                "subject",
 		"aud":                "account",
 		"exp":                now.Add(2 * time.Minute).Unix(),
@@ -72,7 +72,7 @@ func TestMiddleware_AllowsValidToken(t *testing.T) {
 		"scope": "openid email profile",
 	}
 
-	token := issuer.signToken(t, claims)
+	token := issuer.SignToken(t, claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -84,10 +84,10 @@ func TestMiddleware_AllowsValidToken(t *testing.T) {
 }
 
 func TestMiddleware_RejectsInvalidSignature(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
-	mw, err := NewMiddleware(config.Config{Issuer: issuer.issuer, Audiences: []string{"account"}})
+	mw, err := NewMiddleware(config.Config{Issuer: issuer.Issuer(), Audiences: []string{"account"}})
 	require.NoError(t, err)
 
 	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -96,7 +96,7 @@ func TestMiddleware_RejectsInvalidSignature(t *testing.T) {
 
 	now := time.Now()
 	claims := map[string]any{
-		"iss": issuer.issuer,
+		"iss": issuer.Issuer(),
 		"sub": "subject",
 		"aud": "account",
 		"exp": now.Add(time.Minute).Unix(),
@@ -104,7 +104,7 @@ func TestMiddleware_RejectsInvalidSignature(t *testing.T) {
 		"typ": "Bearer",
 	}
 
-	token := signWithDifferentKey(t, claims)
+	token := testissuer.SignWithRandomKey(t, claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -119,10 +119,10 @@ func TestMiddleware_RejectsInvalidSignature(t *testing.T) {
 }
 
 func TestMiddleware_RejectsExpiredToken(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
-	mw, err := NewMiddleware(config.Config{Issuer: issuer.issuer, Audiences: []string{"account"}})
+	mw, err := NewMiddleware(config.Config{Issuer: issuer.Issuer(), Audiences: []string{"account"}})
 	require.NoError(t, err)
 
 	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -131,7 +131,7 @@ func TestMiddleware_RejectsExpiredToken(t *testing.T) {
 
 	now := time.Now().Add(-2 * time.Minute)
 	claims := map[string]any{
-		"iss": issuer.issuer,
+		"iss": issuer.Issuer(),
 		"sub": "subject",
 		"aud": "account",
 		"exp": now.Unix(),
@@ -139,7 +139,7 @@ func TestMiddleware_RejectsExpiredToken(t *testing.T) {
 		"typ": "Bearer",
 	}
 
-	token := issuer.signToken(t, claims)
+	token := issuer.SignToken(t, claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -154,8 +154,8 @@ func TestMiddleware_RejectsExpiredToken(t *testing.T) {
 }
 
 func TestMiddleware_JWKSFetchFailure(t *testing.T) {
-	issuer := newTestIssuer(t)
-	cfg := config.Config{Issuer: issuer.issuer, Audiences: []string{"account"}}
+	issuer := testissuer.New(t)
+	cfg := config.Config{Issuer: issuer.Issuer(), Audiences: []string{"account"}}
 	mw, err := NewMiddleware(cfg)
 	require.NoError(t, err)
 
@@ -165,7 +165,7 @@ func TestMiddleware_JWKSFetchFailure(t *testing.T) {
 
 	now := time.Now()
 	claims := map[string]any{
-		"iss": issuer.issuer,
+		"iss": issuer.Issuer(),
 		"sub": "subject",
 		"aud": "account",
 		"exp": now.Add(time.Minute).Unix(),
@@ -173,7 +173,7 @@ func TestMiddleware_JWKSFetchFailure(t *testing.T) {
 		"typ": "Bearer",
 	}
 
-	token := issuer.signToken(t, claims)
+	token := issuer.SignToken(t, claims)
 	issuer.Close()
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -189,10 +189,10 @@ func TestMiddleware_JWKSFetchFailure(t *testing.T) {
 }
 
 func TestMiddleware_RejectsMalformedToken(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
-	mw, err := NewMiddleware(config.Config{Issuer: issuer.issuer})
+	mw, err := NewMiddleware(config.Config{Issuer: issuer.Issuer()})
 	require.NoError(t, err)
 
 	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -212,10 +212,10 @@ func TestMiddleware_RejectsMalformedToken(t *testing.T) {
 }
 
 func TestMiddleware_RejectsMissingAuthorization(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
-	mw, err := NewMiddleware(config.Config{Issuer: issuer.issuer})
+	mw, err := NewMiddleware(config.Config{Issuer: issuer.Issuer()})
 	require.NoError(t, err)
 
 	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -234,11 +234,11 @@ func TestMiddleware_RejectsMissingAuthorization(t *testing.T) {
 }
 
 func TestMiddleware_CustomTokenSources(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
 	cfg := config.Config{
-		Issuer:    issuer.issuer,
+		Issuer:    issuer.Issuer(),
 		Audiences: []string{"account"},
 		TokenSources: []tokensource.Source{
 			tokensource.Cookie("session"),
@@ -255,14 +255,14 @@ func TestMiddleware_CustomTokenSources(t *testing.T) {
 
 	now := time.Now()
 	claims := map[string]any{
-		"iss": issuer.issuer,
+		"iss": issuer.Issuer(),
 		"sub": "subject",
 		"aud": "account",
 		"exp": now.Add(time.Minute).Unix(),
 		"iat": now.Add(-time.Minute).Unix(),
 	}
 
-	token := issuer.signToken(t, claims)
+	token := issuer.SignToken(t, claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: token})
@@ -275,12 +275,12 @@ func TestMiddleware_CustomTokenSources(t *testing.T) {
 }
 
 func TestMiddleware_CustomClaimsValidator(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
 	var invoked bool
 	cfg := config.Config{
-		Issuer:    issuer.issuer,
+		Issuer:    issuer.Issuer(),
 		Audiences: []string{"account"},
 		ClaimsValidators: []config.ClaimsValidator{
 			func(ctx context.Context, claims map[string]any) error {
@@ -302,7 +302,7 @@ func TestMiddleware_CustomClaimsValidator(t *testing.T) {
 
 	now := time.Now()
 	claims := map[string]any{
-		"iss":                issuer.issuer,
+		"iss":                issuer.Issuer(),
 		"sub":                "subject",
 		"aud":                "account",
 		"exp":                now.Add(time.Minute).Unix(),
@@ -310,7 +310,7 @@ func TestMiddleware_CustomClaimsValidator(t *testing.T) {
 		"preferred_username": "alice",
 	}
 
-	token := issuer.signToken(t, claims)
+	token := issuer.SignToken(t, claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -323,11 +323,11 @@ func TestMiddleware_CustomClaimsValidator(t *testing.T) {
 }
 
 func TestMiddleware_CustomClaimsValidatorRejects(t *testing.T) {
-	issuer := newTestIssuer(t)
+	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)
 
 	cfg := config.Config{
-		Issuer:    issuer.issuer,
+		Issuer:    issuer.Issuer(),
 		Audiences: []string{"account"},
 		ClaimsValidators: []config.ClaimsValidator{
 			func(ctx context.Context, claims map[string]any) error {
@@ -345,14 +345,14 @@ func TestMiddleware_CustomClaimsValidatorRejects(t *testing.T) {
 
 	now := time.Now()
 	claims := map[string]any{
-		"iss": issuer.issuer,
+		"iss": issuer.Issuer(),
 		"sub": "subject",
 		"aud": "account",
 		"exp": now.Add(time.Minute).Unix(),
 		"iat": now.Add(-time.Minute).Unix(),
 	}
 
-	token := issuer.signToken(t, claims)
+	token := issuer.SignToken(t, claims)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -366,86 +366,99 @@ func TestMiddleware_CustomClaimsValidatorRejects(t *testing.T) {
 	require.Equal(t, "invalid_token", body["error"])
 }
 
-type testIssuer struct {
-	server *httptest.Server
-	issuer string
-	key    *rsa.PrivateKey
-	keyID  string
-	jwks   []byte
-}
+func TestMiddleware_RecordsMetricsOnSuccess(t *testing.T) {
+	issuer := testissuer.New(t)
+	t.Cleanup(issuer.Close)
 
-func newTestIssuer(t *testing.T) *testIssuer {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-
-	ti := &testIssuer{key: key, keyID: "test-key"}
-	ti.jwks = buildJWKS(t, key, ti.keyID)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		response := map[string]any{
-			"issuer":                 ti.issuer,
-			"jwks_uri":               ti.issuer + "/jwks",
-			"token_endpoint":         ti.issuer + "/token",
-			"authorization_endpoint": ti.issuer + "/auth",
-		}
-		_ = json.NewEncoder(w).Encode(response)
+	recorder := &capturingMetrics{}
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	t.Cleanup(func() {
+		_ = tracerProvider.Shutdown(context.Background())
 	})
-	mux.HandleFunc("/jwks", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(ti.jwks)
-	})
-
-	server := httptest.NewServer(mux)
-	ti.server = server
-	ti.issuer = server.URL
-
-	return ti
-}
-
-func (ti *testIssuer) signToken(t *testing.T, claims map[string]any) string {
-	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims(claims))
-	token.Header["kid"] = ti.keyID
-	signed, err := token.SignedString(ti.key)
-	require.NoError(t, err)
-	return signed
-}
-
-func (ti *testIssuer) Close() {
-	if ti.server != nil {
-		ti.server.Close()
-	}
-}
-
-func buildJWKS(t *testing.T, key *rsa.PrivateKey, keyID string) []byte {
-	t.Helper()
-	n := base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes())
-	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes())
-
-	jwk := map[string]any{
-		"kty": "RSA",
-		"alg": "RS256",
-		"use": "sig",
-		"kid": keyID,
-		"n":   n,
-		"e":   e,
+	cfg := config.Config{
+		Issuer:          issuer.Issuer(),
+		Audiences:       []string{"account"},
+		MetricsRecorder: recorder,
+		Tracer:          tracerProvider.Tracer("middleware-test"),
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 
-	body, err := json.Marshal(map[string]any{"keys": []any{jwk}})
+	mw, err := NewMiddleware(cfg)
 	require.NoError(t, err)
-	return body
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	now := time.Now()
+	claims := map[string]any{
+		"iss": issuer.Issuer(),
+		"sub": "subject",
+		"aud": "account",
+		"exp": now.Add(time.Minute).Unix(),
+		"iat": now.Add(-time.Minute).Unix(),
+	}
+
+	token := issuer.SignToken(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+	require.Len(t, recorder.events, 1)
+	require.Equal(t, config.MetricsOutcomeSuccess, recorder.events[0].Outcome)
+	require.Empty(t, recorder.events[0].ErrorCode)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
 }
 
-func signWithDifferentKey(t *testing.T, claims map[string]any) string {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+func TestMiddleware_RecordsMetricsOnFailure(t *testing.T) {
+	issuer := testissuer.New(t)
+	t.Cleanup(issuer.Close)
+
+	recorder := &capturingMetrics{}
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	t.Cleanup(func() {
+		_ = tracerProvider.Shutdown(context.Background())
+	})
+	cfg := config.Config{
+		Issuer:          issuer.Issuer(),
+		MetricsRecorder: recorder,
+		Tracer:          tracerProvider.Tracer("middleware-test"),
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	mw, err := NewMiddleware(cfg)
 	require.NoError(t, err)
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims(claims))
-	token.Header["kid"] = "other"
-	signed, err := token.SignedString(key)
-	require.NoError(t, err)
-	return signed
+
+	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be invoked")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	require.Len(t, recorder.events, 1)
+	require.Equal(t, config.MetricsOutcomeFailure, recorder.events[0].Outcome)
+	require.Equal(t, "invalid_request", recorder.events[0].ErrorCode)
+
+	spans := spanRecorder.Ended()
+	require.Len(t, spans, 1)
+}
+
+type capturingMetrics struct {
+	events []config.MetricsEvent
+}
+
+func (c *capturingMetrics) RecordValidation(_ context.Context, event config.MetricsEvent) {
+	c.events = append(c.events, event)
 }

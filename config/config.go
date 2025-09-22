@@ -3,11 +3,13 @@ package config
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/deicod/oidcmw/tokensource"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Config captures the runtime configuration for the OIDC middleware.
@@ -46,6 +48,15 @@ type Config struct {
 
 	// ClaimsValidators allows callers to provide additional validation logic for decoded claims.
 	ClaimsValidators []ClaimsValidator
+
+	// MetricsRecorder, when provided, captures authentication outcomes and latency information.
+	MetricsRecorder MetricsRecorder
+
+	// Tracer emits OpenTelemetry spans around validation attempts when configured.
+	Tracer trace.Tracer
+
+	// Logger records structured log entries for authentication successes and failures. When nil a default slog logger is used.
+	Logger *slog.Logger
 }
 
 // ClaimsValidator performs additional validation on decoded token claims.
@@ -53,6 +64,29 @@ type ClaimsValidator func(ctx context.Context, claims map[string]any) error
 
 // ErrorResponseBuilder creates a structured payload for authentication failures.
 type ErrorResponseBuilder func(code, description string) any
+
+// MetricsOutcome classifies the result of a validation attempt.
+type MetricsOutcome string
+
+const (
+	// MetricsOutcomeSuccess represents a successful authentication attempt.
+	MetricsOutcomeSuccess MetricsOutcome = "success"
+	// MetricsOutcomeFailure represents a failed authentication attempt.
+	MetricsOutcomeFailure MetricsOutcome = "failure"
+)
+
+// MetricsEvent describes the payload reported to a MetricsRecorder.
+type MetricsEvent struct {
+	Issuer    string
+	Outcome   MetricsOutcome
+	ErrorCode string
+	Duration  time.Duration
+}
+
+// MetricsRecorder records authentication metrics.
+type MetricsRecorder interface {
+	RecordValidation(ctx context.Context, event MetricsEvent)
+}
 
 // DefaultErrorResponseBuilder returns an RFC 6750 inspired response body.
 func DefaultErrorResponseBuilder(code, description string) any {
@@ -76,6 +110,9 @@ func (c *Config) SetDefaults() {
 	}
 	if len(c.TokenSources) == 0 {
 		c.TokenSources = []tokensource.Source{tokensource.AuthorizationHeader()}
+	}
+	if c.Logger == nil {
+		c.Logger = slog.Default()
 	}
 }
 
