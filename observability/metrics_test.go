@@ -50,3 +50,24 @@ func TestMetricsRegistersCollectors(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, families, 2)
 }
+
+func TestMetricsReusesExistingCollectors(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	first, err := NewMetrics(MetricsOptions{Registerer: registry, Namespace: "oidcmw"})
+	require.NoError(t, err)
+
+	second, err := NewMetrics(MetricsOptions{Registerer: registry, Namespace: "oidcmw"})
+	require.NoError(t, err)
+
+	require.Equal(t, first.requestTotal, second.requestTotal)
+	require.Equal(t, first.requestDuration, second.requestDuration)
+
+	second.RecordValidation(context.Background(), config.MetricsEvent{
+		Issuer:   "https://issuer",
+		Outcome:  config.MetricsOutcomeSuccess,
+		Duration: 50 * time.Millisecond,
+	})
+
+	success := testutil.ToFloat64(first.requestTotal.WithLabelValues("https://issuer", string(config.MetricsOutcomeSuccess), "none"))
+	require.Equal(t, 1.0, success)
+}
