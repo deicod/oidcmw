@@ -44,6 +44,12 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 			rawToken, err := extractToken(r, sources)
 			if err != nil {
 				if errors.Is(err, tokensource.ErrNotFound) {
+					if cfg.AllowAnonymousRequests {
+						recordSpan(span, config.MetricsOutcomeSuccess, "", nil)
+						recordMetrics(ctx, cfg, start, config.MetricsOutcomeSuccess, "")
+						next.ServeHTTP(w, r.WithContext(ctx))
+						return
+					}
 					authErr := newAuthError(errorCodeInvalidRequest, cfg.UnauthorizedStatusCode, "missing bearer token", err)
 					logFailure(ctx, cfg.Logger, authErr)
 					respond(w, cfg, authErr)
