@@ -38,6 +38,12 @@ type Config struct {
 	// UnauthorizedStatusCode is used when a request fails authentication.
 	UnauthorizedStatusCode int
 
+	// AllowAnonymousRequests permits the middleware to pass through requests that
+	// do not present a bearer token. When enabled, downstream handlers can use
+	// viewer.IsAuthenticated to distinguish anonymous callers from authenticated
+	// ones.
+	AllowAnonymousRequests bool
+
 	// ErrorResponseBuilder allows customizing the response body emitted for authentication errors.
 	// The returned value must be JSON serializable.
 	ErrorResponseBuilder ErrorResponseBuilder
@@ -60,6 +66,8 @@ type Config struct {
 
 	// Logger records structured log entries for authentication successes and failures. When nil a default slog logger is used.
 	Logger *slog.Logger
+
+	allowAnonymousRequestsConfigured bool
 }
 
 // ClaimsValidator performs additional validation on decoded token claims.
@@ -133,6 +141,9 @@ func (c *Config) SetDefaults() {
 	}
 	if c.Logger == nil {
 		c.Logger = slog.Default()
+	}
+	if c.AllowAnonymousRequests && !c.allowAnonymousRequestsConfigured {
+		c.allowAnonymousRequestsConfigured = true
 	}
 }
 

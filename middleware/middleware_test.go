@@ -239,6 +239,44 @@ func TestMiddleware_RejectsMissingAuthorization(t *testing.T) {
 	requireWWWAuthenticateHeader(t, rr, "invalid_request", "missing bearer token")
 }
 
+func TestMiddleware_AllowsAnonymousRequestsWhenConfigured(t *testing.T) {
+	issuer := testissuer.New(t)
+	t.Cleanup(issuer.Close)
+
+	recorder := &capturingMetrics{}
+	cfg := config.Config{
+		Issuer:                 issuer.Issuer(),
+		AllowAnonymousRequests: true,
+		MetricsRecorder:        recorder,
+		Logger:                 slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.False(t, viewer.IsAuthenticated(r.Context()))
+
+		_, err := viewer.FromContext(r.Context())
+		require.ErrorIs(t, err, viewer.ErrNoViewer)
+
+		_, ok := ClaimsFromContext(r.Context())
+		require.False(t, ok)
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusAccepted, rr.Code)
+	require.Len(t, recorder.events, 1)
+	require.Equal(t, config.MetricsOutcomeSuccess, recorder.events[0].Outcome)
+	require.Empty(t, recorder.events[0].ErrorCode)
+}
+
 func TestMiddleware_CustomTokenSources(t *testing.T) {
 	issuer := testissuer.New(t)
 	t.Cleanup(issuer.Close)

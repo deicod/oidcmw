@@ -15,13 +15,14 @@ import (
 )
 
 type fileConfig struct {
-	Issuer             string                 `json:"issuer" yaml:"issuer"`
-	Audiences          []string               `json:"audiences" yaml:"audiences"`
-	TokenTypes         []string               `json:"token_types" yaml:"token_types"`
-	AuthorizedParties  []string               `json:"authorized_parties" yaml:"authorized_parties"`
-	ClockSkew          string                 `json:"clock_skew" yaml:"clock_skew"`
-	UnauthorizedStatus int                    `json:"unauthorized_status_code" yaml:"unauthorized_status_code"`
-	TokenSources       tokenSourceDefinitions `json:"token_sources" yaml:"token_sources"`
+	Issuer                 string                 `json:"issuer" yaml:"issuer"`
+	Audiences              []string               `json:"audiences" yaml:"audiences"`
+	TokenTypes             []string               `json:"token_types" yaml:"token_types"`
+	AuthorizedParties      []string               `json:"authorized_parties" yaml:"authorized_parties"`
+	ClockSkew              string                 `json:"clock_skew" yaml:"clock_skew"`
+	UnauthorizedStatus     int                    `json:"unauthorized_status_code" yaml:"unauthorized_status_code"`
+	AllowAnonymousRequests *bool                  `json:"allow_anonymous_requests" yaml:"allow_anonymous_requests"`
+	TokenSources           tokenSourceDefinitions `json:"token_sources" yaml:"token_sources"`
 }
 
 type tokenSourceDefinitions []tokensource.Definition
@@ -135,6 +136,10 @@ func (fc fileConfig) toConfig() (Config, error) {
 	if fc.UnauthorizedStatus != 0 {
 		cfg.UnauthorizedStatusCode = fc.UnauthorizedStatus
 	}
+	if fc.AllowAnonymousRequests != nil {
+		cfg.AllowAnonymousRequests = *fc.AllowAnonymousRequests
+		cfg.allowAnonymousRequestsConfigured = true
+	}
 	if len(fc.TokenSources) > 0 {
 		for _, def := range fc.TokenSources {
 			src, err := def.Build()
@@ -182,6 +187,14 @@ func FromEnv(prefix string) (Config, error) {
 		}
 		cfg.UnauthorizedStatusCode = code
 	}
+	if v, ok := lookup("ALLOW_ANONYMOUS_REQUESTS"); ok {
+		parsed, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return Config{}, fmt.Errorf("config: parse ALLOW_ANONYMOUS_REQUESTS: %w", err)
+		}
+		cfg.AllowAnonymousRequests = parsed
+		cfg.allowAnonymousRequestsConfigured = true
+	}
 	if v, ok := lookup("TOKEN_SOURCES"); ok {
 		defs, err := tokensource.ParseList(v)
 		if err != nil {
@@ -225,6 +238,10 @@ func Merge(base Config, overrides ...Config) Config {
 		}
 		if override.Now != nil {
 			result.Now = override.Now
+		}
+		if override.allowAnonymousRequestsConfigured {
+			result.AllowAnonymousRequests = override.AllowAnonymousRequests
+			result.allowAnonymousRequestsConfigured = true
 		}
 		if len(override.TokenSources) > 0 {
 			result.TokenSources = append([]tokensource.Source(nil), override.TokenSources...)

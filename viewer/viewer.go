@@ -144,6 +144,12 @@ func MustFromContext(ctx context.Context) *Viewer {
 	return viewer
 }
 
+// IsAuthenticated reports whether the context contains an authenticated viewer.
+func IsAuthenticated(ctx context.Context) bool {
+	_, err := FromContext(ctx)
+	return err == nil
+}
+
 func cloneClaims(claims map[string]any) map[string]any {
 	if len(claims) == 0 {
 		return map[string]any{}

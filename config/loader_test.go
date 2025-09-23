@@ -19,6 +19,7 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("OIDC_AUTHORIZED_PARTIES", "spa")
 	t.Setenv("OIDC_CLOCK_SKEW", "45s")
 	t.Setenv("OIDC_UNAUTHORIZED_STATUS_CODE", "418")
+	t.Setenv("OIDC_ALLOW_ANONYMOUS_REQUESTS", "true")
 	t.Setenv("OIDC_TOKEN_SOURCES", "cookie:session,authorization_header")
 
 	cfg, err := FromEnv("OIDC")
@@ -29,6 +30,7 @@ func TestFromEnv(t *testing.T) {
 	require.Equal(t, []string{"spa"}, cfg.AuthorizedParties)
 	require.Equal(t, 45*time.Second, cfg.ClockSkew)
 	require.Equal(t, 418, cfg.UnauthorizedStatusCode)
+	require.True(t, cfg.AllowAnonymousRequests)
 	require.Len(t, cfg.TokenSources, 2)
 }
 
@@ -40,6 +42,7 @@ audiences: ["service"]
 authorized_parties: ["spa"]
 clock_skew: 1m
 unauthorized_status_code: 401
+allow_anonymous_requests: true
 token_sources:
   - type: cookie
     name: access
@@ -51,6 +54,7 @@ token_sources:
 	require.NoError(t, err)
 	require.Equal(t, "https://issuer", cfg.Issuer)
 	require.Equal(t, []string{"service"}, cfg.Audiences)
+	require.True(t, cfg.AllowAnonymousRequests)
 	require.Len(t, cfg.TokenSources, 2)
 }
 
@@ -62,18 +66,21 @@ func TestLoadPrecedence(t *testing.T) {
                 "audiences": ["file"],
                 "token_sources": [
                         {"type": "authorization_header"}
-                ]
+                ],
+                "allow_anonymous_requests": true
         }`)
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
 	t.Setenv("APP_ISSUER", "https://env")
 	t.Setenv("APP_AUDIENCES", "env")
 	t.Setenv("APP_TOKEN_SOURCES", "query:token")
+	t.Setenv("APP_ALLOW_ANONYMOUS_REQUESTS", "false")
 
 	cfg, err := Load(LoadOptions{File: path, EnvPrefix: "APP"})
 	require.NoError(t, err)
 	require.Equal(t, "https://env", cfg.Issuer)
 	require.Equal(t, []string{"env"}, cfg.Audiences)
+	require.False(t, cfg.AllowAnonymousRequests)
 	require.Len(t, cfg.TokenSources, 1)
 
 	req := httptest.NewRequest(http.MethodGet, "/?token=value", nil)

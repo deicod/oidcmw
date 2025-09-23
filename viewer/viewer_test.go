@@ -92,3 +92,16 @@ func TestContextHelpers(t *testing.T) {
 	_, err = FromContext(context.Background())
 	require.ErrorIs(t, err, ErrNoViewer)
 }
+
+func TestIsAuthenticated(t *testing.T) {
+	require.False(t, IsAuthenticated(nil))
+
+	ctx := context.Background()
+	require.False(t, IsAuthenticated(ctx))
+
+	ctx = WithViewer(ctx, FromClaims(map[string]any{"sub": "subject"}))
+	require.True(t, IsAuthenticated(ctx))
+
+	ctx = WithViewer(ctx, nil)
+	require.False(t, IsAuthenticated(ctx))
+}

@@ -16,6 +16,12 @@ Provide `config.ClaimsValidator` functions via `config.Config.ClaimsValidators`.
 
 Absolutely. Use `tokensource.Cookie("session")`, `tokensource.Header("X-Auth")`, or combine multiple sources via `config.Config.TokenSources`.
 
+## Can handlers allow anonymous readers while still validating tokens when supplied?
+
+Yes. Set `config.Config.AllowAnonymousRequests` to `true`. Requests without a bearer token will bypass authentication, while
+requests that include a token will be validated normally. Within handlers call `viewer.IsAuthenticated(r.Context())` to
+differentiate between anonymous and authenticated callers.
+
 ## Where do I find test helpers?
 
 The `internal/testutil/issuer` package exposes a `FakeIssuer` server, JWT signing helpers, and JWKS responses for unit tests.

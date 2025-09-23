@@ -46,6 +46,28 @@ func main() {
 
 Downstream handlers can also inspect the original JWT claims via `middleware.ClaimsFromContext` when custom authorization logic is required.
 
+## Optional Authentication
+
+Set `config.Config.AllowAnonymousRequests` to `true` to let requests without a bearer token reach your handlers. When a token is
+present the middleware still validates it and enriches the context with a viewer. Downstream code can differentiate anonymous
+callers from authenticated users by invoking `viewer.IsAuthenticated`.
+
+```go
+cfg := config.Config{
+        Issuer:                 "https://auth.icod.de/realms/dev",
+        AllowAnonymousRequests: true,
+}
+
+handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if !viewer.IsAuthenticated(r.Context()) {
+                w.WriteHeader(http.StatusOK)
+                return
+        }
+        v, _ := viewer.FromContext(r.Context())
+        fmt.Fprintf(w, "hello %s", v.PreferredUsername)
+}))
+```
+
 ## Error Responses
 
 Authentication failures return RFC 6750 inspired payloads. When the middleware responds with `401 Unauthorized` it also includes a `WWW-Authenticate` header that repeats the `error` and `error_description` values (for example `Bearer error="invalid_token", error_description="token validation failed"`). Header values are safely escaped so integrators can rely on them for programmatic handling or surfacing messages to clients.
