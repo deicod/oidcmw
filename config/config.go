@@ -67,6 +67,14 @@ type Config struct {
 	// Logger records structured log entries for authentication successes and failures. When nil a default slog logger is used.
 	Logger *slog.Logger
 
+	// ViewerFactory constructs the principal instance placed on the request context. When nil a default
+	// factory returning a *viewer.Viewer is used.
+	ViewerFactory ViewerFactory
+
+	// ViewerContextBinder attaches the constructed viewer and claims to the request context. When nil a default
+	// binder that installs the viewer via viewer.WithViewer and stores the claims map is used.
+	ViewerContextBinder ViewerContextBinder
+
 	allowAnonymousRequestsConfigured bool
 }
 
@@ -98,6 +106,12 @@ type MetricsEvent struct {
 type MetricsRecorder interface {
 	RecordValidation(ctx context.Context, event MetricsEvent)
 }
+
+// ViewerFactory constructs a viewer/principal instance from validated claims.
+type ViewerFactory func(claims map[string]any) (any, error)
+
+// ViewerContextBinder attaches the viewer and claims to the request context.
+type ViewerContextBinder func(ctx context.Context, viewer any, claims map[string]any) context.Context
 
 // DefaultErrorResponseBuilder returns an RFC 6750 inspired response body.
 func DefaultErrorResponseBuilder(code, description string) any {

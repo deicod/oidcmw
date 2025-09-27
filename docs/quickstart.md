@@ -59,6 +59,34 @@ log.Fatal(http.ListenAndServe(":8080", mux))
 
 Downstream handlers can access the validated JWT claims via `middleware.ClaimsFromContext` when custom authorization logic is required.
 
+### Customize the viewer
+
+When services need a different principal abstraction, provide `ViewerFactory` and `ViewerContextBinder` hooks on the configuration. The factory converts validated claims into your type, while the binder stores it on the request context alongside the cloned claims map exposed via `middleware.WithClaims`.
+
+```go
+type account struct {
+        subject string
+        scopes  []string
+}
+
+type accountContextKey struct{}
+
+cfg.ViewerFactory = func(claims map[string]any) (any, error) {
+        subject, _ := claims["sub"].(string)
+        rawScopes, _ := claims["scope"].(string)
+        return &account{subject: subject, scopes: strings.Fields(rawScopes)}, nil
+}
+
+cfg.ViewerContextBinder = func(ctx context.Context, v any, claims map[string]any) context.Context {
+        if acct, ok := v.(*account); ok {
+                ctx = context.WithValue(ctx, accountContextKey{}, acct)
+        }
+        return middleware.WithClaims(ctx, claims)
+}
+```
+
+Downstream handlers can retrieve the custom type using the context key and still reach for the original claims map when needed.
+
 ## 4. Observe authentication outcomes
 
 Enable structured logging, metrics, and tracing by supplying the corresponding hooks on the configuration struct:
