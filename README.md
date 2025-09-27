@@ -46,6 +46,38 @@ func main() {
 
 Downstream handlers can also inspect the original JWT claims via `middleware.ClaimsFromContext` when custom authorization logic is required.
 
+## Customizing the principal
+
+Packages that prefer a different identity type can replace the default `viewer.Viewer` by supplying hooks on `config.Config`:
+
+```go
+type account struct {
+        subject string
+        email   string
+}
+
+type accountContextKey struct{}
+
+cfg := config.Config{
+        Issuer:            "https://auth.icod.de/realms/dev",
+        Audiences:         []string{"account"},
+        AuthorizedParties: []string{"spa"},
+        ViewerFactory: func(claims map[string]any) (any, error) {
+                subject, _ := claims["sub"].(string)
+                email, _ := claims["email"].(string)
+                return &account{subject: subject, email: email}, nil
+        },
+        ViewerContextBinder: func(ctx context.Context, v any, claims map[string]any) context.Context {
+                if acct, ok := v.(*account); ok {
+                        ctx = context.WithValue(ctx, accountContextKey{}, acct)
+                }
+                return middleware.WithClaims(ctx, claims)
+        },
+}
+```
+
+The middleware invokes `ViewerFactory` after verifying the token. Whatever value it returns is passed to `ViewerContextBinder`, which can attach the principal to the context alongside the cloned claims map via `middleware.WithClaims`. The default implementation continues to expose `viewer.FromContext` helpers, so existing integrations keep working without additional configuration.
+
 ## Optional Authentication
 
 Set `config.Config.AllowAnonymousRequests` to `true` to let requests without a bearer token reach your handlers. When a token is

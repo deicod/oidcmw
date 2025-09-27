@@ -25,6 +25,15 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 		return nil, err
 	}
 
+	viewerFactory := cfg.ViewerFactory
+	if viewerFactory == nil {
+		viewerFactory = defaultViewerFactory
+	}
+	viewerBinder := cfg.ViewerContextBinder
+	if viewerBinder == nil {
+		viewerBinder = DefaultViewerContextBinder
+	}
+
 	validator, err := internaloidc.NewValidator(context.Background(), cfg)
 	if err != nil {
 		return nil, err
@@ -74,8 +83,22 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 				return
 			}
 
-			v := viewer.FromClaims(validated.Claims)
-			ctx = contextWithViewer(ctx, v)
+			principal, err := viewerFactory(validated.Claims)
+			if err != nil {
+				authErr := newAuthError(errorCodeServerError, http.StatusInternalServerError, "viewer construction failed", err)
+				logFailure(ctx, cfg.Logger, authErr)
+				respond(w, cfg, authErr)
+				recordMetrics(ctx, cfg, start, config.MetricsOutcomeFailure, string(authErr.code))
+				recordSpan(span, config.MetricsOutcomeFailure, string(authErr.code), err)
+				return
+			}
+
+			boundCtx := viewerBinder(ctx, principal, validated.Claims)
+			if boundCtx == nil {
+				boundCtx = contextWithViewer(ctx, nil, validated.Claims)
+			}
+			ctx = boundCtx
+
 			recordSpan(span, config.MetricsOutcomeSuccess, "", nil)
 			recordMetrics(ctx, cfg, start, config.MetricsOutcomeSuccess, "")
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -190,4 +213,8 @@ func recordSpan(span trace.Span, outcome config.MetricsOutcome, errorCode string
 	if err != nil {
 		span.RecordError(err)
 	}
+}
+
+func defaultViewerFactory(claims map[string]any) (any, error) {
+	return viewer.FromClaims(claims), nil
 }

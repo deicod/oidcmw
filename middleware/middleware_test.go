@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -214,6 +215,120 @@ func TestMiddleware_RejectsMalformedToken(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_token", body["error"])
 	requireWWWAuthenticateHeader(t, rr, "invalid_token", "token validation failed")
+}
+
+func TestMiddleware_CustomViewerFactoryAndBinder(t *testing.T) {
+	issuer := testissuer.New(t)
+	t.Cleanup(issuer.Close)
+
+	type customViewer struct {
+		subject string
+	}
+	type customViewerContextKey struct{}
+
+	cfg := config.Config{
+		Issuer:            issuer.Issuer(),
+		Audiences:         []string{"account"},
+		AuthorizedParties: []string{"spa"},
+		ViewerFactory: func(claims map[string]any) (any, error) {
+			return &customViewer{subject: claims["sub"].(string)}, nil
+		},
+		ViewerContextBinder: func(ctx context.Context, v any, claims map[string]any) context.Context {
+			if cv, ok := v.(*customViewer); ok {
+				ctx = context.WithValue(ctx, customViewerContextKey{}, cv)
+			}
+			return WithClaims(ctx, claims)
+		},
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims, ok := ClaimsFromContext(r.Context())
+		require.True(t, ok)
+		require.Equal(t, "subject", claims["sub"])
+
+		_, err := viewer.FromContext(r.Context())
+		require.Error(t, err)
+
+		cv, ok := r.Context().Value(customViewerContextKey{}).(*customViewer)
+		require.True(t, ok)
+		require.Equal(t, "subject", cv.subject)
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	now := time.Now().Add(-time.Minute)
+	claims := map[string]any{
+		"iss": issuer.Issuer(),
+		"sub": "subject",
+		"aud": "account",
+		"exp": now.Add(2 * time.Minute).Unix(),
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"typ": "Bearer",
+		"azp": "spa",
+	}
+
+	token := issuer.SignToken(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusNoContent, rr.Code)
+}
+
+func TestMiddleware_ViewerFactoryError(t *testing.T) {
+	issuer := testissuer.New(t)
+	t.Cleanup(issuer.Close)
+
+	expectedErr := errors.New("boom")
+
+	cfg := config.Config{
+		Issuer:            issuer.Issuer(),
+		Audiences:         []string{"account"},
+		AuthorizedParties: []string{"spa"},
+		ViewerFactory: func(map[string]any) (any, error) {
+			return nil, expectedErr
+		},
+	}
+
+	mw, err := NewMiddleware(cfg)
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be invoked")
+	}))
+
+	now := time.Now().Add(-time.Minute)
+	claims := map[string]any{
+		"iss": issuer.Issuer(),
+		"sub": "subject",
+		"aud": "account",
+		"exp": now.Add(2 * time.Minute).Unix(),
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"typ": "Bearer",
+		"azp": "spa",
+	}
+
+	token := issuer.SignToken(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusInternalServerError, rr.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	require.Equal(t, "server_error", body["error"])
+	require.Equal(t, "viewer construction failed", body["error_description"])
 }
 
 func TestMiddleware_RejectsMissingAuthorization(t *testing.T) {
