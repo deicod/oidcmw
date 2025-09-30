@@ -178,23 +178,101 @@ func TestQuery(t *testing.T) {
 }
 
 func TestDefinitionBuild(t *testing.T) {
-	def := Definition{Type: TypeHeader, Name: "X-Token"}
-	src, err := def.Build()
-	require.NoError(t, err)
+	t.Run("header", func(t *testing.T) {
+		def := Definition{Type: TypeHeader, Name: "X-Token"}
+		src, err := def.Build()
+		require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Token", "value")
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("X-Token", "value")
 
-	token, err := src.Extract(req)
-	require.NoError(t, err)
-	require.Equal(t, "value", token)
+		token, err := src.Extract(req)
+		require.NoError(t, err)
+		require.Equal(t, "value", token)
+	})
+
+	t.Run("websocket protocol", func(t *testing.T) {
+		def := Definition{Type: TypeWebSocketProtocol}
+		src, err := def.Build()
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Sec-WebSocket-Protocol", "bearer, token")
+
+		token, err := src.Extract(req)
+		require.NoError(t, err)
+		require.Equal(t, "token", token)
+	})
+}
+
+func TestWebSocketProtocolWithScheme(t *testing.T) {
+	tests := []struct {
+		name    string
+		scheme  string
+		header  []string
+		want    string
+		wantErr error
+	}{
+		{
+			name:   "default scheme", // implicit bearer sentinel
+			header: []string{"bearer, token123"},
+			want:   "token123",
+		},
+		{
+			name:   "trim spacing",
+			header: []string{"bearer , token123"},
+			want:   "token123",
+		},
+		{
+			name:   "multiple values",
+			header: []string{"other", "bearer,token456"},
+			want:   "token456",
+		},
+		{
+			name:    "missing sentinel",
+			header:  []string{"token123"},
+			wantErr: ErrNotFound,
+		},
+		{
+			name:    "missing token after sentinel",
+			header:  []string{"bearer"},
+			wantErr: ErrNotFound,
+		},
+		{
+			name:   "custom scheme", // sentinel provided explicitly
+			scheme: "custom",
+			header: []string{"custom,abc"},
+			want:   "abc",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			for _, value := range tc.header {
+				req.Header.Add("Sec-WebSocket-Protocol", value)
+			}
+
+			src := WebSocketProtocolWithScheme(tc.scheme)
+			token, err := src.Extract(req)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, token)
+		})
+	}
 }
 
 func TestParseList(t *testing.T) {
 	encodedScheme := url.QueryEscape("Token")
-	defs, err := ParseList("authorization_header, header:X-Api-Key:" + encodedScheme + ", cookie:session, query:access")
+	wsScheme := url.QueryEscape("custom")
+	defs, err := ParseList("authorization_header, header:X-Api-Key:" + encodedScheme + ", cookie:session, query:access, websocket_protocol, websocket_protocol:" + wsScheme)
 	require.NoError(t, err)
-	require.Len(t, defs, 4)
+	require.Len(t, defs, 6)
 	require.Equal(t, TypeAuthorizationHeader, defs[0].Type)
 	require.Equal(t, TypeHeader, defs[1].Type)
 	require.Equal(t, "X-Api-Key", defs[1].Name)
@@ -203,4 +281,7 @@ func TestParseList(t *testing.T) {
 	require.Equal(t, "session", defs[2].Name)
 	require.Equal(t, TypeQuery, defs[3].Type)
 	require.Equal(t, "access", defs[3].Name)
+	require.Equal(t, TypeWebSocketProtocol, defs[4].Type)
+	require.Equal(t, TypeWebSocketProtocol, defs[5].Type)
+	require.Equal(t, "custom", defs[5].Scheme)
 }
