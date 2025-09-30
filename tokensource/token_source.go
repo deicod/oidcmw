@@ -36,6 +36,8 @@ const (
 	TypeCookie Type = "cookie"
 	// TypeQuery reads tokens from a query string parameter.
 	TypeQuery Type = "query"
+	// TypeWebSocketProtocol reads tokens from the Sec-WebSocket-Protocol header.
+	TypeWebSocketProtocol Type = "websocket_protocol"
 )
 
 // Definition declares a token source constructed via configuration.
@@ -76,6 +78,9 @@ func (d Definition) Build() (Source, error) {
 			return nil, fmt.Errorf("tokensource: query token source requires a name")
 		}
 		return Query(name), nil
+	case TypeWebSocketProtocol:
+		scheme := strings.TrimSpace(d.Scheme)
+		return WebSocketProtocolWithScheme(scheme), nil
 	default:
 		return nil, fmt.Errorf("tokensource: unsupported token source type %q", d.Type)
 	}
@@ -195,12 +200,59 @@ func Query(name string) Source {
 	})
 }
 
+// WebSocketProtocol extracts tokens from the Sec-WebSocket-Protocol header using the default scheme sentinel.
+func WebSocketProtocol() Source {
+	return WebSocketProtocolWithScheme("")
+}
+
+// WebSocketProtocolWithScheme extracts the token that follows the provided scheme sentinel within the Sec-WebSocket-Protocol header.
+// The header is interpreted as an ordered, comma-separated list. When the sentinel is omitted or empty, "bearer" is used.
+func WebSocketProtocolWithScheme(scheme string) Source {
+	normalized := strings.TrimSpace(scheme)
+	if normalized == "" {
+		normalized = "bearer"
+	}
+	return SourceFunc(func(r *http.Request) (string, error) {
+		values := r.Header.Values("Sec-WebSocket-Protocol")
+		if len(values) == 0 {
+			return "", ErrNotFound
+		}
+
+		var entries []string
+		for _, raw := range values {
+			for _, part := range strings.Split(raw, ",") {
+				trimmed := strings.TrimSpace(part)
+				if trimmed == "" {
+					continue
+				}
+				entries = append(entries, trimmed)
+			}
+		}
+
+		for i := 0; i < len(entries); i++ {
+			if strings.EqualFold(entries[i], normalized) {
+				if i+1 >= len(entries) {
+					return "", ErrNotFound
+				}
+				token := strings.TrimSpace(entries[i+1])
+				if token == "" {
+					return "", ErrNotFound
+				}
+				return token, nil
+			}
+		}
+
+		return "", ErrNotFound
+	})
+}
+
 // ParseList converts a comma separated list of token source descriptors to Definition values.
 // Supported descriptor formats:
 //   - "authorization_header"
 //   - "header:<name>" or "header:<name>:<scheme>"
 //   - "cookie:<name>"
 //   - "query:<name>"
+//   - "websocket_protocol" or "websocket_protocol:<scheme>"
 func ParseList(raw string) ([]Definition, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
@@ -253,6 +305,17 @@ func parseDescriptor(descriptor string) (Definition, error) {
 			return Definition{}, fmt.Errorf("tokensource: query token descriptor missing name")
 		}
 		return Definition{Type: TypeQuery, Name: name}, nil
+	case lower == string(TypeWebSocketProtocol):
+		return Definition{Type: TypeWebSocketProtocol}, nil
+	case strings.HasPrefix(lower, string(TypeWebSocketProtocol)+":"):
+		scheme, err := url.QueryUnescape(strings.TrimSpace(descriptor[len(TypeWebSocketProtocol)+1:]))
+		if err != nil {
+			return Definition{}, fmt.Errorf("tokensource: invalid websocket protocol scheme: %w", err)
+		}
+		if strings.TrimSpace(scheme) == "" {
+			return Definition{}, fmt.Errorf("tokensource: websocket protocol descriptor missing scheme")
+		}
+		return Definition{Type: TypeWebSocketProtocol, Scheme: scheme}, nil
 	default:
 		return Definition{}, fmt.Errorf("tokensource: unsupported token descriptor %q", descriptor)
 	}

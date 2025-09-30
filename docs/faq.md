@@ -16,6 +16,50 @@ Provide `config.ClaimsValidator` functions via `config.Config.ClaimsValidators`.
 
 Absolutely. Use `tokensource.Cookie("session")`, `tokensource.Header("X-Auth")`, or combine multiple sources via `config.Config.TokenSources`.
 
+## How do I read tokens during WebSocket upgrades?
+
+Use the `websocket_protocol` token source to inspect the ordered `Sec-WebSocket-Protocol` header entries. The helper treats
+`bearer` as the default sentinel and returns the value that follows it (e.g., a JWT). When you use a WebSocket library, make
+sure to echo the selected subprotocol in the upgrade response so browsers accept the handshake:
+
+```go
+import (
+        "net/http"
+
+        "github.com/deicod/oidcmw/tokensource"
+        "github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+        Subprotocols: []string{"bearer"},
+}
+
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+        token, err := tokensource.WebSocketProtocol().Extract(r)
+        if err != nil {
+                http.Error(w, "missing bearer token", http.StatusUnauthorized)
+                return
+        }
+
+        responseHeader := http.Header{}
+        if protocols := websocket.Subprotocols(r); len(protocols) > 0 {
+                responseHeader.Set("Sec-WebSocket-Protocol", protocols[0])
+        }
+
+        conn, err := upgrader.Upgrade(w, r, responseHeader)
+        if err != nil {
+                http.Error(w, "upgrade failed", http.StatusInternalServerError)
+                return
+        }
+        defer conn.Close()
+
+        _ = conn.WriteMessage(websocket.TextMessage, []byte("authenticated as "+token))
+}
+```
+
+Enable the source in configuration with either `websocket_protocol` (for the default sentinel) or `websocket_protocol:custom`
+to look for an alternative scheme name.
+
 ## Can handlers allow anonymous readers while still validating tokens when supplied?
 
 Yes. Set `config.Config.AllowAnonymousRequests` to `true`. Requests without a bearer token will bypass authentication, while
