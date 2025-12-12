@@ -107,7 +107,7 @@ The middleware logs failures, emits Prometheus counters/histograms, and annotate
 
 ## 5. Test with the fake issuer
 
-The `internal/testutil/issuer` package exposes a `FakeIssuer` that spins up an in-memory discovery and JWKS server for unit tests:
+The `testutil/issuer` package exposes a `FakeIssuer` that spins up an in-memory discovery and JWKS server for unit tests:
 
 ```go
 fake := issuer.New(t)

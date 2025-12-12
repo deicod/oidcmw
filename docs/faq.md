@@ -68,7 +68,7 @@ differentiate between anonymous and authenticated callers.
 
 ## Where do I find test helpers?
 
-The `internal/testutil/issuer` package exposes a `FakeIssuer` server, JWT signing helpers, and JWKS responses for unit tests.
+The `testutil/issuer` package exposes a `FakeIssuer` server, JWT signing helpers, and JWKS responses for unit tests.
 
 ## Does the middleware support tracing and metrics?
 

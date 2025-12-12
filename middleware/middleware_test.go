@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/deicod/oidcmw/config"
-	testissuer "github.com/deicod/oidcmw/internal/testutil/issuer"
+	testissuer "github.com/deicod/oidcmw/testutil/issuer"
 	"github.com/deicod/oidcmw/tokensource"
 	"github.com/deicod/oidcmw/viewer"
 	"github.com/stretchr/testify/require"
