@@ -156,4 +156,4 @@ When configured, middleware automatically records authentication outcomes, laten
 
 ## Testing Utilities
 
-The `internal/testutil/issuer` package spins up a fake discovery server with a JWKS endpoint and exposes helpers for signing JWTs. Use `issuer.New(t)` in unit tests to obtain an issuer URL and `issuer.SignWithRandomKey` to craft invalid tokens for negative scenarios.
+The `testutil/issuer` package spins up a fake discovery server with a JWKS endpoint and exposes helpers for signing JWTs. Use `issuer.New(t)` in unit tests to obtain an issuer URL and `issuer.SignWithRandomKey` to craft invalid tokens for negative scenarios.
