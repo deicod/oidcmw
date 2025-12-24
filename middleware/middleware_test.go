@@ -616,6 +616,48 @@ func TestMiddleware_RecordsMetricsOnFailure(t *testing.T) {
 	require.Len(t, spans, 1)
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	issuer := testissuer.New(t)
+	t.Cleanup(issuer.Close)
+
+	mw, err := NewMiddleware(config.Config{Issuer: issuer.Issuer(), Audiences: []string{"account"}})
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be invoked")
+	}))
+
+	now := time.Now()
+	claims := map[string]any{
+		"iss": issuer.Issuer(),
+		"sub": "subject",
+		"aud": "account",
+		"exp": now.Add(time.Minute).Unix(),
+		"iat": now.Add(-time.Minute).Unix(),
+		"typ": "Bearer",
+	}
+
+	// Sign a token with a different key to force a validation error
+	token := testissuer.SignWithRandomKey(t, claims)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+
+	// Verify security headers
+	require.Equal(t, "no-store", rr.Header().Get("Cache-Control"))
+	require.Equal(t, "no-cache", rr.Header().Get("Pragma"))
+	require.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	require.Equal(t, "invalid_token", body["error"])
+}
+
 func requireWWWAuthenticateHeader(t *testing.T, rr *httptest.ResponseRecorder, code, description string) {
 	t.Helper()
 	header := rr.Header().Get("WWW-Authenticate")
