@@ -152,6 +152,9 @@ func handleValidationError(w http.ResponseWriter, cfg config.Config, err error) 
 
 func respond(w http.ResponseWriter, cfg config.Config, authErr authError) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if authErr.status == http.StatusUnauthorized {
 		w.Header().Set("WWW-Authenticate", wwwAuthenticateHeader(authErr))
 	}
