@@ -174,15 +174,54 @@ func (v *Validator) validateAudience(claims map[string]any) *ValidationError {
 	if len(v.audienceAllowlist) == 0 {
 		return nil
 	}
-	audiences := extractAudiences(claims["aud"])
-	if len(audiences) == 0 {
+
+	val := claims["aud"]
+	if val == nil {
 		return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
 	}
-	for _, aud := range audiences {
-		if _, ok := v.audienceAllowlist[aud]; ok {
+
+	// Optimized path to avoid allocations in extractAudiences
+	switch raw := val.(type) {
+	case string:
+		if raw == "" {
+			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
+		}
+		if _, ok := v.audienceAllowlist[raw]; ok {
 			return nil
 		}
+
+	case []any:
+		foundValidString := false
+		for _, item := range raw {
+			if s, ok := item.(string); ok && s != "" {
+				foundValidString = true
+				if _, ok := v.audienceAllowlist[s]; ok {
+					return nil
+				}
+			}
+		}
+		if !foundValidString {
+			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
+		}
+
+	case []string:
+		foundValidString := false
+		for _, s := range raw {
+			if s != "" {
+				foundValidString = true
+				if _, ok := v.audienceAllowlist[s]; ok {
+					return nil
+				}
+			}
+		}
+		if !foundValidString {
+			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
+		}
+
+	default:
+		return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
 	}
+
 	return newValidationError(ValidationErrorAudienceMismatch, "audience claim not allowed", nil)
 }
 
