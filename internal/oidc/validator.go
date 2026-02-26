@@ -77,6 +77,22 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 	if err != nil {
 		return nil, newValidationError(ValidationErrorInvalidToken, "token verification failed", err)
 	}
+
+	// Optimization: Check expiry, issuer, and audience from the parsed IDToken
+	// before unmarshaling the full claims map.
+	now := v.now()
+	if err := v.validateTimes(now, idToken, nil); err != nil {
+		return nil, err
+	}
+
+	if err := v.validateIssuerFromToken(idToken); err != nil {
+		return nil, err
+	}
+
+	if err := v.validateAudienceFromToken(idToken); err != nil {
+		return nil, err
+	}
+
 	claims := map[string]any{}
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, newValidationError(ValidationErrorMalformedToken, "failed to decode token claims", err)
@@ -87,17 +103,10 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 		return nil, newValidationError(ValidationErrorMalformedToken, "invalid not-before claim", err)
 	}
 
-	now := v.now()
-	if err := v.validateTimes(now, idToken, notBefore); err != nil {
+	if err := v.validateNotBefore(now, notBefore); err != nil {
 		return nil, err
 	}
 
-	if err := v.validateIssuer(claims); err != nil {
-		return nil, err
-	}
-	if err := v.validateAudience(claims); err != nil {
-		return nil, err
-	}
 	if err := v.validateType(claims); err != nil {
 		return nil, err
 	}
@@ -159,72 +168,6 @@ func (v *Validator) validateTimes(now time.Time, token *oidc.IDToken, notBefore 
 	return nil
 }
 
-func (v *Validator) validateIssuer(claims map[string]any) *ValidationError {
-	claim, _ := claims["iss"].(string)
-	if claim == "" {
-		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim missing", nil)
-	}
-	if claim != v.config.Issuer {
-		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim mismatch", nil)
-	}
-	return nil
-}
-
-func (v *Validator) validateAudience(claims map[string]any) *ValidationError {
-	if len(v.audienceAllowlist) == 0 {
-		return nil
-	}
-
-	val := claims["aud"]
-	if val == nil {
-		return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-	}
-
-	// Optimized path to avoid allocations in extractAudiences
-	switch raw := val.(type) {
-	case string:
-		if raw == "" {
-			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-		}
-		if _, ok := v.audienceAllowlist[raw]; ok {
-			return nil
-		}
-
-	case []any:
-		foundValidString := false
-		for _, item := range raw {
-			if s, ok := item.(string); ok && s != "" {
-				foundValidString = true
-				if _, ok := v.audienceAllowlist[s]; ok {
-					return nil
-				}
-			}
-		}
-		if !foundValidString {
-			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-		}
-
-	case []string:
-		foundValidString := false
-		for _, s := range raw {
-			if s != "" {
-				foundValidString = true
-				if _, ok := v.audienceAllowlist[s]; ok {
-					return nil
-				}
-			}
-		}
-		if !foundValidString {
-			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-		}
-
-	default:
-		return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-	}
-
-	return newValidationError(ValidationErrorAudienceMismatch, "audience claim not allowed", nil)
-}
-
 func (v *Validator) validateType(claims map[string]any) *ValidationError {
 	if len(v.tokenTypeAllowlist) == 0 {
 		return nil
@@ -253,6 +196,43 @@ func (v *Validator) validateAZP(claims map[string]any) *ValidationError {
 	return nil
 }
 
+func (v *Validator) validateIssuerFromToken(token *oidc.IDToken) *ValidationError {
+	if token.Issuer == "" {
+		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim missing", nil)
+	}
+	if token.Issuer != v.config.Issuer {
+		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim mismatch", nil)
+	}
+	return nil
+}
+
+func (v *Validator) validateAudienceFromToken(token *oidc.IDToken) *ValidationError {
+	if len(v.audienceAllowlist) == 0 {
+		return nil
+	}
+	if len(token.Audience) == 0 {
+		return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
+	}
+
+	for _, s := range token.Audience {
+		if _, ok := v.audienceAllowlist[s]; ok {
+			return nil
+		}
+	}
+
+	return newValidationError(ValidationErrorAudienceMismatch, "audience claim not allowed", nil)
+}
+
+func (v *Validator) validateNotBefore(now time.Time, notBefore *time.Time) *ValidationError {
+	if notBefore == nil {
+		return nil
+	}
+	if now.Add(v.config.ClockSkew).Before(notBefore.UTC()) {
+		return newValidationError(ValidationErrorNotYetValid, "token is not yet valid", nil)
+	}
+	return nil
+}
+
 func toSet(values []string, lower bool) map[string]struct{} {
 	if len(values) == 0 {
 		return nil
@@ -266,34 +246,6 @@ func toSet(values []string, lower bool) map[string]struct{} {
 		}
 	}
 	return set
-}
-
-func extractAudiences(value any) []string {
-	switch v := value.(type) {
-	case string:
-		if v == "" {
-			return nil
-		}
-		return []string{v}
-	case []any:
-		audiences := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok && s != "" {
-				audiences = append(audiences, s)
-			}
-		}
-		return audiences
-	case []string:
-		audiences := make([]string, 0, len(v))
-		for _, s := range v {
-			if s != "" {
-				audiences = append(audiences, s)
-			}
-		}
-		return audiences
-	default:
-		return nil
-	}
 }
 
 func parseNotBefore(value any) (*time.Time, error) {
