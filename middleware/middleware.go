@@ -25,6 +25,10 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 		return nil, err
 	}
 
+	if len(cfg.Audiences) == 0 {
+		cfg.Logger.Warn("security warning: no audiences configured; all tokens issued by the provider will be accepted")
+	}
+
 	viewerFactory := cfg.ViewerFactory
 	if viewerFactory == nil {
 		viewerFactory = defaultViewerFactory
