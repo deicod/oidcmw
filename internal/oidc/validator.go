@@ -48,6 +48,8 @@ func NewValidator(ctx context.Context, cfg config.Config) (*Validator, error) {
 
 	oidcConfig := &oidc.Config{
 		SkipClientIDCheck: true,
+		// Time-based checks are performed manually in Validate to support clock skew.
+		SkipExpiryCheck: true,
 	}
 
 	verifier := provider.Verifier(oidcConfig)
