@@ -79,6 +79,18 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 	if err != nil {
 		return nil, newValidationError(ValidationErrorInvalidToken, "token verification failed", err)
 	}
+
+	now := v.now()
+	if err := v.validateExpiryAndIssuedAt(now, idToken); err != nil {
+		return nil, err
+	}
+	if err := v.validateIssuer(idToken.Issuer); err != nil {
+		return nil, err
+	}
+	if err := v.validateAudience(idToken.Audience); err != nil {
+		return nil, err
+	}
+
 	claims := map[string]any{}
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, newValidationError(ValidationErrorMalformedToken, "failed to decode token claims", err)
@@ -89,17 +101,10 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 		return nil, newValidationError(ValidationErrorMalformedToken, "invalid not-before claim", err)
 	}
 
-	now := v.now()
-	if err := v.validateTimes(now, idToken, notBefore); err != nil {
+	if err := v.validateNotBefore(now, notBefore); err != nil {
 		return nil, err
 	}
 
-	if err := v.validateIssuer(claims); err != nil {
-		return nil, err
-	}
-	if err := v.validateAudience(claims); err != nil {
-		return nil, err
-	}
 	if err := v.validateType(claims); err != nil {
 		return nil, err
 	}
@@ -141,7 +146,7 @@ func (v *Validator) runCustomValidators(ctx context.Context, claims map[string]a
 	return nil
 }
 
-func (v *Validator) validateTimes(now time.Time, token *oidc.IDToken, notBefore *time.Time) *ValidationError {
+func (v *Validator) validateExpiryAndIssuedAt(now time.Time, token *oidc.IDToken) *ValidationError {
 	skew := v.config.ClockSkew
 	if !token.Expiry.IsZero() {
 		if now.After(token.Expiry.Add(skew)) {
@@ -153,6 +158,11 @@ func (v *Validator) validateTimes(now time.Time, token *oidc.IDToken, notBefore 
 			return newValidationError(ValidationErrorNotYetValid, "token used before issued", nil)
 		}
 	}
+	return nil
+}
+
+func (v *Validator) validateNotBefore(now time.Time, notBefore *time.Time) *ValidationError {
+	skew := v.config.ClockSkew
 	if notBefore != nil {
 		if now.Add(skew).Before(notBefore.UTC()) {
 			return newValidationError(ValidationErrorNotYetValid, "token is not yet valid", nil)
@@ -161,67 +171,31 @@ func (v *Validator) validateTimes(now time.Time, token *oidc.IDToken, notBefore 
 	return nil
 }
 
-func (v *Validator) validateIssuer(claims map[string]any) *ValidationError {
-	claim, _ := claims["iss"].(string)
-	if claim == "" {
+func (v *Validator) validateIssuer(issuer string) *ValidationError {
+	if issuer == "" {
 		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim missing", nil)
 	}
-	if claim != v.config.Issuer {
+	if issuer != v.config.Issuer {
 		return newValidationError(ValidationErrorIssuerMismatch, "issuer claim mismatch", nil)
 	}
 	return nil
 }
 
-func (v *Validator) validateAudience(claims map[string]any) *ValidationError {
+func (v *Validator) validateAudience(audiences []string) *ValidationError {
 	if len(v.audienceAllowlist) == 0 {
 		return nil
 	}
 
-	val := claims["aud"]
-	if val == nil {
+	if len(audiences) == 0 {
 		return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
 	}
 
-	// Optimized path to avoid allocations in extractAudiences
-	switch raw := val.(type) {
-	case string:
-		if raw == "" {
-			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-		}
-		if _, ok := v.audienceAllowlist[raw]; ok {
-			return nil
-		}
-
-	case []any:
-		foundValidString := false
-		for _, item := range raw {
-			if s, ok := item.(string); ok && s != "" {
-				foundValidString = true
-				if _, ok := v.audienceAllowlist[s]; ok {
-					return nil
-				}
+	for _, s := range audiences {
+		if s != "" {
+			if _, ok := v.audienceAllowlist[s]; ok {
+				return nil
 			}
 		}
-		if !foundValidString {
-			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-		}
-
-	case []string:
-		foundValidString := false
-		for _, s := range raw {
-			if s != "" {
-				foundValidString = true
-				if _, ok := v.audienceAllowlist[s]; ok {
-					return nil
-				}
-			}
-		}
-		if !foundValidString {
-			return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
-		}
-
-	default:
-		return newValidationError(ValidationErrorAudienceMismatch, "audience claim missing", nil)
 	}
 
 	return newValidationError(ValidationErrorAudienceMismatch, "audience claim not allowed", nil)
@@ -268,34 +242,6 @@ func toSet(values []string, lower bool) map[string]struct{} {
 		}
 	}
 	return set
-}
-
-func extractAudiences(value any) []string {
-	switch v := value.(type) {
-	case string:
-		if v == "" {
-			return nil
-		}
-		return []string{v}
-	case []any:
-		audiences := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok && s != "" {
-				audiences = append(audiences, s)
-			}
-		}
-		return audiences
-	case []string:
-		audiences := make([]string, 0, len(v))
-		for _, s := range v {
-			if s != "" {
-				audiences = append(audiences, s)
-			}
-		}
-		return audiences
-	default:
-		return nil
-	}
 }
 
 func parseNotBefore(value any) (*time.Time, error) {

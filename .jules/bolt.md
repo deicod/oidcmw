@@ -1,0 +1,3 @@
+## 2024-05-24 - [Optimizing OIDC Validation Order]
+**Learning:** `go-oidc`'s `IDToken` struct fields (`Issuer`, `Audience`, `Expiry`) are populated immediately after verification, *before* manual claim extraction. Using these fields allows for fail-fast validation checks without the overhead of unmarshaling the entire JSON payload into a `map[string]any`.
+**Action:** When validating JWTs or similar tokens, always prioritize checks on pre-parsed header/standard fields before decoding the full body. This is especially impactful for "fail-fast" scenarios where many requests might be rejected due to expiry or issuer mismatch.
