@@ -15,12 +15,18 @@ func TestClockSkewRespectsExpiry(t *testing.T) {
 	fi := issuer.New(t)
 	defer fi.Close()
 
+	// Fixed time for deterministic testing
+	now := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC)
+
 	// Config with ClockSkew
 	cfg := config.Config{
 		Issuer:    fi.Issuer(),
 		ClockSkew: time.Minute,
 		HTTPClient: http.DefaultClient,
 		Audiences: []string{"test-aud"},
+		Now: func() time.Time {
+			return now
+		},
 	}
 
 	validator, err := NewValidator(context.Background(), cfg)
@@ -31,7 +37,6 @@ func TestClockSkewRespectsExpiry(t *testing.T) {
 	// Create a token expired 30 seconds ago.
 	// Skew is 1 minute.
 	// So it should be valid if skew is respected.
-	now := time.Now()
 	claims := map[string]any{
 		"iss": fi.Issuer(),
 		"sub": "test-user",
