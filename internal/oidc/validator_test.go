@@ -77,21 +77,65 @@ func createUnsignedToken(t *testing.T, claims map[string]any) string {
 }
 
 func TestValidateTimesMissingClaims(t *testing.T) {
-	now := time.Now().UTC()
+	const issuer = "https://issuer.example.com"
+	now := time.Unix(1_700_000_000, 0).UTC()
+
+	verifier := oidc.NewVerifier(issuer, nil, &oidc.Config{
+		SkipClientIDCheck:          true,
+		SkipIssuerCheck:            true,
+		SkipExpiryCheck:            true,
+		InsecureSkipSignatureCheck: true,
+	})
+
 	v := &Validator{
-		config: config.Config{ClockSkew: time.Minute},
+		verifier: verifier,
+		config: config.Config{
+			Issuer:    issuer,
+			ClockSkew: time.Minute,
+		},
+		now: func() time.Time { return now },
 	}
 
+	ctx := context.Background()
+
 	t.Run("missing exp", func(t *testing.T) {
-		err := v.validateTimes(now, &oidc.IDToken{IssuedAt: now}, nil)
-		if err == nil || err.Code != ValidationErrorMalformedToken {
+		claims := map[string]any{
+			"iss": issuer,
+			"sub": "subject",
+			"aud": []string{"audience"},
+			"iat": now.Unix(),
+		}
+
+		rawToken := createUnsignedToken(t, claims)
+
+		_, err := v.Validate(ctx, rawToken)
+		if err == nil {
+			t.Fatal("expected error for missing exp, got nil")
+		}
+
+		verr, ok := err.(*ValidationError)
+		if !ok || verr.Code != ValidationErrorMalformedToken {
 			t.Fatalf("expected malformed token error for missing exp, got %v", err)
 		}
 	})
 
 	t.Run("missing iat", func(t *testing.T) {
-		err := v.validateTimes(now, &oidc.IDToken{Expiry: now.Add(time.Hour)}, nil)
-		if err == nil || err.Code != ValidationErrorMalformedToken {
+		claims := map[string]any{
+			"iss": issuer,
+			"sub": "subject",
+			"aud": []string{"audience"},
+			"exp": now.Add(time.Hour).Unix(),
+		}
+
+		rawToken := createUnsignedToken(t, claims)
+
+		_, err := v.Validate(ctx, rawToken)
+		if err == nil {
+			t.Fatal("expected error for missing iat, got nil")
+		}
+
+		verr, ok := err.(*ValidationError)
+		if !ok || verr.Code != ValidationErrorMalformedToken {
 			t.Fatalf("expected malformed token error for missing iat, got %v", err)
 		}
 	})
