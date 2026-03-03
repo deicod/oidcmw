@@ -142,16 +142,19 @@ func (v *Validator) runCustomValidators(ctx context.Context, claims map[string]a
 }
 
 func (v *Validator) validateTimes(now time.Time, token *oidc.IDToken, notBefore *time.Time) *ValidationError {
-	skew := v.config.ClockSkew
-	if !token.Expiry.IsZero() {
-		if now.After(token.Expiry.Add(skew)) {
-			return newValidationError(ValidationErrorExpired, "token has expired", nil)
-		}
+	if token.Expiry.IsZero() {
+		return newValidationError(ValidationErrorMalformedToken, "missing exp claim", nil)
 	}
-	if !token.IssuedAt.IsZero() {
-		if token.IssuedAt.After(now.Add(skew)) {
-			return newValidationError(ValidationErrorNotYetValid, "token used before issued", nil)
-		}
+	if token.IssuedAt.IsZero() {
+		return newValidationError(ValidationErrorMalformedToken, "missing iat claim", nil)
+	}
+
+	skew := v.config.ClockSkew
+	if now.After(token.Expiry.Add(skew)) {
+		return newValidationError(ValidationErrorExpired, "token has expired", nil)
+	}
+	if token.IssuedAt.After(now.Add(skew)) {
+		return newValidationError(ValidationErrorNotYetValid, "token used before issued", nil)
 	}
 	if notBefore != nil {
 		if now.Add(skew).Before(notBefore.UTC()) {
