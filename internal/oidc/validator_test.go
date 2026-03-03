@@ -75,3 +75,24 @@ func createUnsignedToken(t *testing.T, claims map[string]any) string {
 
 	return encodedHeader + "." + encodedPayload + "."
 }
+
+func TestValidateTimesMissingClaims(t *testing.T) {
+	now := time.Now().UTC()
+	v := &Validator{
+		config: config.Config{ClockSkew: time.Minute},
+	}
+
+	t.Run("missing exp", func(t *testing.T) {
+		err := v.validateTimes(now, &oidc.IDToken{IssuedAt: now}, nil)
+		if err == nil || err.Code != ValidationErrorMalformedToken {
+			t.Fatalf("expected malformed token error for missing exp, got %v", err)
+		}
+	})
+
+	t.Run("missing iat", func(t *testing.T) {
+		err := v.validateTimes(now, &oidc.IDToken{Expiry: now.Add(time.Hour)}, nil)
+		if err == nil || err.Code != ValidationErrorMalformedToken {
+			t.Fatalf("expected malformed token error for missing iat, got %v", err)
+		}
+	})
+}
