@@ -12,6 +12,7 @@ const (
 	ValidationErrorAudienceMismatch ValidationErrorCode = "audience_mismatch"
 	ValidationErrorTypeMismatch     ValidationErrorCode = "type_mismatch"
 	ValidationErrorAZPMismatch      ValidationErrorCode = "authorized_party_mismatch"
+	ValidationErrorSubjectMissing   ValidationErrorCode = "subject_missing"
 )
 
 type ValidationError struct {

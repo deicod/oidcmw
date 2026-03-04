@@ -139,7 +139,8 @@ func handleValidationError(w http.ResponseWriter, cfg config.Config, err error) 
 			internaloidc.ValidationErrorAudienceMismatch,
 			internaloidc.ValidationErrorTypeMismatch,
 			internaloidc.ValidationErrorAZPMismatch,
-			internaloidc.ValidationErrorInvalidToken:
+			internaloidc.ValidationErrorInvalidToken,
+			internaloidc.ValidationErrorSubjectMissing:
 			authErr := newAuthError(errorCodeInvalidToken, cfg.UnauthorizedStatusCode, "token validation failed", vErr)
 			respond(w, cfg, authErr)
 			return authErr

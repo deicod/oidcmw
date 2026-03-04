@@ -106,6 +106,9 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 	if err := v.validateAZP(claims); err != nil {
 		return nil, err
 	}
+	if err := v.validateSubject(claims); err != nil {
+		return nil, err
+	}
 
 	if err := v.runCustomValidators(ctx, claims); err != nil {
 		return nil, err
@@ -254,6 +257,14 @@ func (v *Validator) validateAZP(claims map[string]any) *ValidationError {
 	}
 	if _, ok := v.azpAllowlist[azp]; !ok {
 		return newValidationError(ValidationErrorAZPMismatch, "authorized party not allowed", nil)
+	}
+	return nil
+}
+
+func (v *Validator) validateSubject(claims map[string]any) *ValidationError {
+	subject, _ := claims["sub"].(string)
+	if subject == "" {
+		return newValidationError(ValidationErrorSubjectMissing, "subject claim missing", nil)
 	}
 	return nil
 }
