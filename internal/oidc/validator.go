@@ -77,6 +77,16 @@ func NewValidator(ctx context.Context, cfg config.Config) (*Validator, error) {
 func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedToken, error) {
 	idToken, err := v.verifier.Verify(ctx, rawToken)
 	if err != nil {
+		if strings.Contains(err.Error(), "unmarshal number into Go struct field idToken.sub of type string") {
+			return nil, newValidationError(ValidationErrorSubjectMissing, "subject claim missing or invalid type", err)
+		}
+		if strings.Contains(err.Error(), "unmarshal bool into Go struct field idToken.sub of type string") {
+			return nil, newValidationError(ValidationErrorSubjectMissing, "subject claim missing or invalid type", err)
+		}
+		// go-oidc's coreos library fails early when the JSON is unmarshaled into its struct which has `Subject string \`json:"sub"\``.
+		if strings.Contains(err.Error(), "struct field idToken.sub of type string") {
+			return nil, newValidationError(ValidationErrorSubjectMissing, "subject claim missing or invalid type", err)
+		}
 		return nil, newValidationError(ValidationErrorInvalidToken, "token verification failed", err)
 	}
 	claims := map[string]any{}
@@ -104,6 +114,9 @@ func (v *Validator) Validate(ctx context.Context, rawToken string) (*ValidatedTo
 		return nil, err
 	}
 	if err := v.validateAZP(claims); err != nil {
+		return nil, err
+	}
+	if err := v.validateSubject(claims); err != nil {
 		return nil, err
 	}
 
@@ -254,6 +267,18 @@ func (v *Validator) validateAZP(claims map[string]any) *ValidationError {
 	}
 	if _, ok := v.azpAllowlist[azp]; !ok {
 		return newValidationError(ValidationErrorAZPMismatch, "authorized party not allowed", nil)
+	}
+	return nil
+}
+
+func (v *Validator) validateSubject(claims map[string]any) *ValidationError {
+	val, ok := claims["sub"]
+	if !ok {
+		return newValidationError(ValidationErrorSubjectMissing, "subject claim missing", nil)
+	}
+	subject, ok := val.(string)
+	if !ok || subject == "" {
+		return newValidationError(ValidationErrorSubjectMissing, "subject claim missing", nil)
 	}
 	return nil
 }

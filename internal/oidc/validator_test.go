@@ -140,3 +140,77 @@ func TestValidateTimesMissingClaims(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateSubjectMissing(t *testing.T) {
+	const configuredIssuer = "https://issuer.example.com"
+	now := time.Unix(1_700_000_000, 0).UTC()
+
+	verifier := oidc.NewVerifier(configuredIssuer, nil, &oidc.Config{
+		SkipClientIDCheck:          true,
+		SkipExpiryCheck:            true,
+		InsecureSkipSignatureCheck: true,
+	})
+
+	validator := &Validator{
+		verifier: verifier,
+		config: config.Config{
+			Issuer: configuredIssuer,
+		},
+		now: func() time.Time { return now },
+	}
+
+	cases := []struct {
+		name   string
+		claims map[string]any
+	}{
+		{
+			name: "missing sub claim",
+			claims: map[string]any{
+				"iss": configuredIssuer,
+				"aud": []string{"audience"},
+				"exp": now.Add(time.Hour).Unix(),
+				"iat": now.Add(-time.Minute).Unix(),
+			},
+		},
+		{
+			name: "empty sub claim",
+			claims: map[string]any{
+				"iss": configuredIssuer,
+				"aud": []string{"audience"},
+				"exp": now.Add(time.Hour).Unix(),
+				"iat": now.Add(-time.Minute).Unix(),
+				"sub": "",
+			},
+		},
+		{
+			name: "non-string sub claim",
+			claims: map[string]any{
+				"iss": configuredIssuer,
+				"aud": []string{"audience"},
+				"exp": now.Add(time.Hour).Unix(),
+				"iat": now.Add(-time.Minute).Unix(),
+				"sub": 123,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rawToken := createUnsignedToken(t, tc.claims)
+
+			_, err := validator.Validate(context.Background(), rawToken)
+			if err == nil {
+				t.Fatal("expected validation error for invalid sub claim")
+			}
+
+			vErr, ok := err.(*ValidationError)
+			if !ok {
+				t.Fatalf("expected ValidationError, got %T", err)
+			}
+
+			if vErr.Code != ValidationErrorSubjectMissing {
+				t.Fatalf("expected subject mismatch error, got %s", vErr.Code)
+			}
+		})
+	}
+}
