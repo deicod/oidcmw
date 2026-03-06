@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,6 +120,33 @@ func TestMiddleware_RejectsInvalidSignature(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	require.Equal(t, "invalid_token", body["error"])
 	requireWWWAuthenticateHeader(t, rr, "invalid_token", "token validation failed")
+}
+
+func TestMiddleware_RejectsOversizedToken(t *testing.T) {
+	issuer := testissuer.New(t)
+	t.Cleanup(issuer.Close)
+
+	mw, err := NewMiddleware(config.Config{Issuer: issuer.Issuer()})
+	require.NoError(t, err)
+
+	handler := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler should not be invoked")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// Create a token that exceeds the 32KB limit
+	hugeToken := "Bearer " + strings.Repeat("a", 33000)
+	req.Header.Set("Authorization", hugeToken)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	require.Equal(t, "invalid_request", body["error"])
+	require.Equal(t, "bearer token too large", body["error_description"])
+	requireWWWAuthenticateHeader(t, rr, "invalid_request", "bearer token too large")
 }
 
 func TestMiddleware_RejectsExpiredToken(t *testing.T) {
