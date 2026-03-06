@@ -18,6 +18,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+var errTokenTooLarge = errors.New("bearer token too large")
+
 // NewMiddleware constructs an HTTP middleware enforcing OIDC bearer token validation.
 func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 	cfg.SetDefaults()
@@ -56,6 +58,14 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 
 			rawToken, err := extractToken(r, sources)
 			if err != nil {
+				if errors.Is(err, errTokenTooLarge) {
+					authErr := newAuthError(errorCodeInvalidRequest, cfg.UnauthorizedStatusCode, "bearer token too large", err)
+					logFailure(ctx, cfg.Logger, authErr)
+					respond(w, cfg, authErr)
+					recordMetrics(ctx, cfg, start, config.MetricsOutcomeFailure, string(authErr.code))
+					recordSpan(span, config.MetricsOutcomeFailure, string(authErr.code), err)
+					return
+				}
 				if errors.Is(err, tokensource.ErrNotFound) {
 					if cfg.AllowAnonymousRequests {
 						recordSpan(span, config.MetricsOutcomeSuccess, "", nil)
@@ -120,11 +130,12 @@ func extractToken(r *http.Request, sources []tokensource.Source) (string, error)
 			}
 			return "", err
 		}
-		if len(token) > maxTokenLength {
-			return "", errors.New("token exceeds maximum length limit")
-		}
-		if strings.TrimSpace(token) == "" {
+		token = strings.TrimSpace(token)
+		if token == "" {
 			continue
+		}
+		if len(token) > maxTokenLength {
+			return "", errTokenTooLarge
 		}
 		return token, nil
 	}
