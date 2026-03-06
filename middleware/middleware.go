@@ -111,6 +111,7 @@ func NewMiddleware(cfg config.Config) (func(http.Handler) http.Handler, error) {
 }
 
 func extractToken(r *http.Request, sources []tokensource.Source) (string, error) {
+	const maxTokenLength = 32768 // 32KB limit to prevent DoS from excessively large tokens
 	for _, source := range sources {
 		token, err := source.Extract(r)
 		if err != nil {
@@ -118,6 +119,9 @@ func extractToken(r *http.Request, sources []tokensource.Source) (string, error)
 				continue
 			}
 			return "", err
+		}
+		if len(token) > maxTokenLength {
+			return "", errors.New("token exceeds maximum length limit")
 		}
 		if strings.TrimSpace(token) == "" {
 			continue
