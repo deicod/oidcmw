@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 // ErrNotFound indicates that a token could not be located by a Source.
@@ -193,16 +194,19 @@ func Cookie(name string) Source {
 //
 // Deprecated: Extracting bearer tokens from query parameters is insecure and may lead to token leakage.
 func Query(name string) Source {
+	var warnOnce sync.Once
 	return SourceFunc(func(r *http.Request) (string, error) {
 		if r.URL == nil {
 			return "", ErrNotFound
 		}
-		value := r.URL.Query().Get(name)
-		if strings.TrimSpace(value) == "" {
+		trimmed := strings.TrimSpace(r.URL.Query().Get(name))
+		if trimmed == "" {
 			return "", ErrNotFound
 		}
-		slog.Warn("security warning: extracting bearer token from query parameter is insecure and may lead to token leakage")
-		return strings.TrimSpace(value), nil
+		warnOnce.Do(func() {
+			slog.WarnContext(r.Context(), "security warning: extracting bearer token from query parameter is insecure and may lead to token leakage", slog.String("param", name))
+		})
+		return trimmed, nil
 	})
 }
 
