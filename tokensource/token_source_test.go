@@ -1,9 +1,12 @@
 package tokensource
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -170,11 +173,29 @@ func TestCookie(t *testing.T) {
 }
 
 func TestQuery(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/?access=abc", nil)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
-	token, err := Query("access").Extract(req)
-	require.NoError(t, err)
-	require.Equal(t, "abc", token)
+	oldLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+	slog.SetDefault(logger)
+
+	source := Query("access")
+
+	req1 := httptest.NewRequest(http.MethodGet, "/?access=abc", nil)
+	token1, err1 := source.Extract(req1)
+	require.NoError(t, err1)
+	require.Equal(t, "abc", token1)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/?access=def", nil)
+	token2, err2 := source.Extract(req2)
+	require.NoError(t, err2)
+	require.Equal(t, "def", token2)
+
+	logOutput := buf.String()
+	require.Contains(t, logOutput, "security warning: extracting bearer token from query parameter is insecure")
+	// The warning should only be logged once because of sync.Once
+	require.Equal(t, 1, strings.Count(logOutput, "security warning"))
 }
 
 func TestDefinitionBuild(t *testing.T) {

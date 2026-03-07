@@ -3,9 +3,11 @@ package tokensource
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 // ErrNotFound indicates that a token could not be located by a Source.
@@ -35,6 +37,8 @@ const (
 	// TypeCookie reads tokens from an HTTP cookie.
 	TypeCookie Type = "cookie"
 	// TypeQuery reads tokens from a query string parameter.
+	//
+	// Deprecated: Extracting bearer tokens from query parameters is insecure and may lead to token leakage.
 	TypeQuery Type = "query"
 	// TypeWebSocketProtocol reads tokens from the Sec-WebSocket-Protocol header.
 	TypeWebSocketProtocol Type = "websocket_protocol"
@@ -187,16 +191,22 @@ func Cookie(name string) Source {
 }
 
 // Query extracts tokens from a query string parameter.
+//
+// Deprecated: Extracting bearer tokens from query parameters is insecure and may lead to token leakage.
 func Query(name string) Source {
+	var warnOnce sync.Once
 	return SourceFunc(func(r *http.Request) (string, error) {
 		if r.URL == nil {
 			return "", ErrNotFound
 		}
-		value := r.URL.Query().Get(name)
-		if strings.TrimSpace(value) == "" {
+		trimmed := strings.TrimSpace(r.URL.Query().Get(name))
+		if trimmed == "" {
 			return "", ErrNotFound
 		}
-		return strings.TrimSpace(value), nil
+		warnOnce.Do(func() {
+			slog.WarnContext(r.Context(), "security warning: extracting bearer token from query parameter is insecure and may lead to token leakage", slog.String("param", name))
+		})
+		return trimmed, nil
 	})
 }
 

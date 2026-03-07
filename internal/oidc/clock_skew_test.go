@@ -20,10 +20,10 @@ func TestClockSkewRespectsExpiry(t *testing.T) {
 
 	// Config with ClockSkew
 	cfg := config.Config{
-		Issuer:    fi.Issuer(),
-		ClockSkew: time.Minute,
+		Issuer:     fi.Issuer(),
+		ClockSkew:  time.Minute,
 		HTTPClient: http.DefaultClient,
-		Audiences: []string{"test-aud"},
+		Audiences:  []string{"test-aud"},
 		Now: func() time.Time {
 			return now
 		},
