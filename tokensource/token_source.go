@@ -3,6 +3,7 @@ package tokensource
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,6 +36,8 @@ const (
 	// TypeCookie reads tokens from an HTTP cookie.
 	TypeCookie Type = "cookie"
 	// TypeQuery reads tokens from a query string parameter.
+	//
+	// Deprecated: Extracting bearer tokens from query parameters is insecure and may lead to token leakage.
 	TypeQuery Type = "query"
 	// TypeWebSocketProtocol reads tokens from the Sec-WebSocket-Protocol header.
 	TypeWebSocketProtocol Type = "websocket_protocol"
@@ -187,6 +190,8 @@ func Cookie(name string) Source {
 }
 
 // Query extracts tokens from a query string parameter.
+//
+// Deprecated: Extracting bearer tokens from query parameters is insecure and may lead to token leakage.
 func Query(name string) Source {
 	return SourceFunc(func(r *http.Request) (string, error) {
 		if r.URL == nil {
@@ -196,6 +201,7 @@ func Query(name string) Source {
 		if strings.TrimSpace(value) == "" {
 			return "", ErrNotFound
 		}
+		slog.Warn("security warning: extracting bearer token from query parameter is insecure and may lead to token leakage")
 		return strings.TrimSpace(value), nil
 	})
 }
