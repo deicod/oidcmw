@@ -197,10 +197,10 @@ func logFailure(ctx context.Context, logger *slog.Logger, authErr authError) {
 	if logger == nil {
 		return
 	}
+	// Avoid logging authErr.cause directly as it may contain sensitive information like raw tokens
 	logger.WarnContext(ctx, "authentication failed",
 		slog.String("error_code", string(authErr.code)),
 		slog.String("description", authErr.description),
-		slog.Any("cause", authErr.cause),
 	)
 }
 
